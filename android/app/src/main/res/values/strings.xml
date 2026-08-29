@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Automates MoMo POS multi-step USSD menus up to PIN entry and captures transaction callbacks.</string>
+</resources>
