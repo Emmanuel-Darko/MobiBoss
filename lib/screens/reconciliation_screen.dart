@@ -123,7 +123,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
             children: [
               Text(
                 'Shift #${provider.currentShiftNumber} Audit',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF202124)),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
               ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
@@ -247,7 +247,11 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
-                                color: isSelected ? Colors.white : const Color(0xFF3C4043),
+                                color: isSelected
+                                    ? Colors.white
+                                    : (Theme.of(context).brightness == Brightness.dark
+                                        ? const Color(0xFFE8EAED)
+                                        : const Color(0xFF3C4043)),
                               ),
                             ),
                             selected: isSelected,
@@ -271,9 +275,15 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                const Text(
+                Text(
                   'Shift Period:',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF5F6368)),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF9AA0A6)
+                        : const Color(0xFF5F6368),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 _buildPeriodChip('Today', 'today', period, provider),
@@ -306,9 +316,14 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  const Text(
+                  Text(
                     'Count all physical bank notes and coins in your cash drawer:',
-                    style: TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFF9AA0A6)
+                          : const Color(0xFF5F6368),
+                    ),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -345,14 +360,19 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Active SMS Records (${filteredRecords.length})',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF202124)),
+              const Text(
+                'Active SMS Records',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               ),
               if (period != 'all')
                 Text(
                   'Filtered by $period',
-                  style: const TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF9AA0A6)
+                        : const Color(0xFF5F6368),
+                  ),
                 ),
             ],
           ),
@@ -360,7 +380,6 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
 
           if (filteredRecords.isEmpty)
             Card(
-              color: Colors.white,
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Center(
@@ -372,7 +391,12 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                         discoveredSenders.isEmpty
                             ? 'No scanned messages yet. Tap "Scan SMS Inbox" above.'
                             : 'No messages match the active provider filters or time period.',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF9AA0A6)
+                              : const Color(0xFF5F6368),
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -396,12 +420,13 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
 
                 final color = _getTypeColor(record.type);
                 final label = _getTypeLabel(record.type);
+                final isDark = Theme.of(context).brightness == Brightness.dark;
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 6),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
+                    side: BorderSide(color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -431,12 +456,16 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFF1F3F4),
+                                      color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4),
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     child: Text(
                                       record.sender,
-                                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF5F6368)),
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -444,12 +473,18 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 '${record.customerPhone.isNotEmpty ? "${record.customerPhone} • " : ""}${record.reference}',
-                                style: const TextStyle(fontSize: 10, color: Color(0xFF5F6368)),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
                                 dateFormat.format(record.timestamp),
-                                style: const TextStyle(fontSize: 9, color: Color(0xFF80868B)),
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  color: isDark ? const Color(0xFF80868B) : const Color(0xFF80868B),
+                                ),
                               ),
                             ],
                           ),
@@ -490,13 +525,14 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
 
   Widget _buildPeriodChip(String label, String value, String currentPeriod, MoMoProvider provider) {
     final isSelected = currentPeriod == value;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ChoiceChip(
       label: Text(
         label,
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w600,
-          color: isSelected ? Colors.white : const Color(0xFF5F6368),
+          color: isSelected ? Colors.white : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF5F6368)),
         ),
       ),
       selected: isSelected,
@@ -508,8 +544,13 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
 
   Widget _buildResultCard(ReconciliationResult result, MoMoProvider provider) {
     final isBalanced = result.status == 'BALANCED';
-    final bgColor = isBalanced ? const Color(0xFFE6F4EA) : const Color(0xFFFCE8E6);
-    final fgColor = isBalanced ? const Color(0xFF1E8E3E) : const Color(0xFFD93025);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark
+        ? (isBalanced ? const Color(0xFF0F3818) : const Color(0xFF3E1210))
+        : (isBalanced ? const Color(0xFFE6F4EA) : const Color(0xFFFCE8E6));
+    final fgColor = isDark
+        ? (isBalanced ? const Color(0xFF81C995) : const Color(0xFFF28B82))
+        : (isBalanced ? const Color(0xFF1E8E3E) : const Color(0xFFD93025));
 
     return Card(
       color: bgColor,
@@ -547,12 +588,12 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
             _buildResultRow(
               'Total Deposits / Inflows (+)',
               'GHS ${result.totalCashIn.toStringAsFixed(2)}',
-              color: const Color(0xFF1E8E3E),
+              color: isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E),
             ),
             _buildResultRow(
               'Total Withdrawals / Outflows (-)',
               'GHS ${result.totalCashOut.toStringAsFixed(2)}',
-              color: const Color(0xFFD93025),
+              color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
             ),
             _buildResultRow(
               'Total Commissions Earned',
@@ -564,12 +605,12 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.85),
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.white.withValues(alpha: 0.85),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 result.aiDiagnosis,
-                style: const TextStyle(fontSize: 11, color: Color(0xFF3C4043)),
+                style: TextStyle(fontSize: 11, color: isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043)),
               ),
             ),
             const SizedBox(height: 12),
@@ -579,7 +620,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
               width: double.infinity,
               child: FilledButton.icon(
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF202124),
+                  backgroundColor: isDark ? const Color(0xFF1A73E8) : const Color(0xFF202124),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
@@ -649,6 +690,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
         return SizedBox(
           height: MediaQuery.of(ctx).size.height * 0.75,
           child: Padding(
@@ -687,7 +729,9 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: isBalanced ? const Color(0xFFE6F4EA) : const Color(0xFFFCE8E6),
+                                            color: isDark
+                                                ? (isBalanced ? const Color(0xFF0F3818) : const Color(0xFF3E1210))
+                                                : (isBalanced ? const Color(0xFFE6F4EA) : const Color(0xFFFCE8E6)),
                                             borderRadius: BorderRadius.circular(4),
                                           ),
                                           child: Text(
@@ -695,14 +739,22 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                                             style: TextStyle(
                                               fontSize: 10,
                                               fontWeight: FontWeight.bold,
-                                              color: isBalanced ? const Color(0xFF1E8E3E) : const Color(0xFFD93025),
+                                              color: isDark
+                                                  ? (isBalanced ? const Color(0xFF81C995) : const Color(0xFFF28B82))
+                                                  : (isBalanced ? const Color(0xFF1E8E3E) : const Color(0xFFD93025)),
                                             ),
                                           ),
                                         ),
                                       ],
                                     ),
                                     const SizedBox(height: 4),
-                                    Text('${dateFormat.format(shift.startTime)} → ${dateFormat.format(shift.endTime)}', style: const TextStyle(fontSize: 10, color: Color(0xFF5F6368))),
+                                    Text(
+                                      '${dateFormat.format(shift.startTime)} → ${dateFormat.format(shift.endTime)}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                                      ),
+                                    ),
                                     const Divider(height: 12),
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -748,15 +800,20 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
   }
 
   Widget _buildResultRow(String label, String value, {Color? color}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF3C4043))),
+          Text(label, style: TextStyle(fontSize: 12, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF3C4043))),
           Text(
             value,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color ?? const Color(0xFF202124)),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color ?? (isDark ? const Color(0xFFE8EAED) : const Color(0xFF202124)),
+            ),
           ),
         ],
       ),

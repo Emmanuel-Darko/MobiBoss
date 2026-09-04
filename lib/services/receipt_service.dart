@@ -33,7 +33,7 @@ class ReceiptService {
               children: [
                 // Store Header
                 pw.Text(
-                  'MOMO BOSS POS',
+                  'MOMOBOSS POS',
                   style: pw.TextStyle(font: fontBold, fontSize: 13, fontWeight: pw.FontWeight.bold),
                 ),
                 pw.Text('Ghana Mobile Money Agent', style: const pw.TextStyle(fontSize: 8)),
@@ -294,7 +294,7 @@ class ReceiptService {
     required Till till,
   }) {
     final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
-    return '''🧾 *MOMO BOSS POS RECEIPT*
+    return '''🧾 *MOMOBOSS POS RECEIPT*
 ━━━━━━━━━━━━━━━━━━━━
 📌 *${_getTypeTitle(tx.type).toUpperCase()}* [CONFIRMED]
 👤 *Customer:* ${tx.customerPhone}
@@ -332,7 +332,7 @@ Thank you for transacting with us!''';
     required ShiftRecord shift,
   }) {
     final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
-    return '''📊 *MOMO BOSS SHIFT #${shift.shiftNumber} SETTLEMENT*
+    return '''📊 *MOMOBOSS SHIFT #${shift.shiftNumber} SETTLEMENT*
 ━━━━━━━━━━━━━━━━━━━━
 🕒 *Period:* ${dateFormat.format(shift.startTime)} → ${dateFormat.format(shift.endTime)}
 🔢 *Total Transactions:* ${shift.transactionCount}

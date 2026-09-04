@@ -16,7 +16,7 @@ class SecurityService {
   }
 
   /// Prompts the agent for fingerprint, face, or device PIN
-  static Future<bool> authenticate({String reason = 'Authenticate to access MoMo Boss'}) async {
+  static Future<bool> authenticate({String reason = 'Authenticate to access MomoBoss'}) async {
     try {
       final isAvailable = await isBiometricsAvailable();
       if (!isAvailable) return true; // If device has no hardware security, allow pass

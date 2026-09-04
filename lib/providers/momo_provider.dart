@@ -554,7 +554,7 @@ class MoMoProvider extends ChangeNotifier {
           builder: (ctx) => AlertDialog(
             title: const Text('SMS Permission Required'),
             content: const Text(
-              'MoMo Boss requires SMS reading permission to inspect transaction confirmations from your mobile networks and payment providers.',
+              'MomoBoss requires SMS reading permission to inspect transaction confirmations from your mobile networks and payment providers.',
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),

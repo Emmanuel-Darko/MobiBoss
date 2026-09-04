@@ -142,7 +142,11 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
-                side: const BorderSide(color: Color(0xFFE8EAED)),
+                side: BorderSide(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF2D2F31)
+                      : const Color(0xFFE8EAED),
+                ),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(14),
@@ -154,23 +158,30 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFE8F0FE),
+                            color: Theme.of(context).brightness == Brightness.dark
+                                ? const Color(0xFF1A3B66)
+                                : const Color(0xFFE8F0FE),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF1A73E8), size: 22),
                         ),
                         const SizedBox(width: 10),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              const Text(
                                 'Transfer SIM Commission',
                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                               Text(
                                 'Sweep accumulated agent commission directly into Float or MoMo Wallet',
-                                style: TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Theme.of(context).brightness == Brightness.dark
+                                      ? const Color(0xFF9AA0A6)
+                                      : const Color(0xFF5F6368),
+                                ),
                               ),
                             ],
                           ),
@@ -215,7 +226,7 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
             // ─── 4. Commission Breakdown by Telecom Network ───
             const Text(
               'Earnings by Telecom Network',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF202124)),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
             ),
             const SizedBox(height: 8),
             _buildNetworkBreakdownCard(provider),
@@ -229,23 +240,31 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
   }
 
   Widget _buildMetricTile(String label, String value, IconData icon) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
-      color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 18, color: const Color(0xFF5F6368)),
+            Icon(icon, size: 18, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368)),
             const SizedBox(height: 6),
             Text(
               label,
-              style: const TextStyle(fontSize: 10, color: Color(0xFF5F6368), fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 10,
+                color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 2),
             Text(
               value,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF202124)),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: isDark ? const Color(0xFFE8EAED) : const Color(0xFF202124),
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ],
@@ -257,6 +276,7 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
   Widget _buildNetworkBreakdownCard(MoMoProvider provider) {
     final map = provider.commissionsByNetwork;
     final total = map.values.fold(0.0, (s, v) => s + v);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Card(
       child: Padding(
@@ -294,7 +314,11 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
                       Text(netName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                       Text(
                         'GHS ${amt.toStringAsFixed(2)} (${(pct * 100).toStringAsFixed(0)}%)',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF5F6368)),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                        ),
                       ),
                     ],
                   ),
@@ -304,7 +328,7 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
                     child: LinearProgressIndicator(
                       value: pct,
                       minHeight: 6,
-                      backgroundColor: const Color(0xFFF1F3F4),
+                      backgroundColor: isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4),
                       valueColor: AlwaysStoppedAnimation<Color>(barColor),
                     ),
                   ),
@@ -320,6 +344,7 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
   Widget _buildPerformanceAnalytics(MoMoProvider provider) {
     final last7 = provider.last7DaysPerformance;
     final networkComms = provider.commissionsByNetwork;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -336,9 +361,12 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'Daily total mobile money transaction values',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                  ),
                 ),
                 const SizedBox(height: 20),
                 SizedBox(
@@ -372,7 +400,11 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
                                   padding: const EdgeInsets.only(top: 6),
                                   child: Text(
                                     last7[index].dayLabel,
-                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF5F6368)),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                                    ),
                                   ),
                                 );
                               }

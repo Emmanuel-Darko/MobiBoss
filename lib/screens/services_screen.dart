@@ -190,17 +190,36 @@ class _ServicesScreenState extends State<ServicesScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFFE6F4EA),
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? const Color(0xFF0F3818)
+                  : const Color(0xFFE6F4EA),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF1E8E3E).withValues(alpha: 0.3)),
+              border: Border.all(
+                color: (Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF81C995)
+                        : const Color(0xFF1E8E3E))
+                    .withValues(alpha: 0.3),
+              ),
             ),
             child: Row(
               children: [
-                const Icon(Icons.monetization_on_rounded, color: Color(0xFF1E8E3E), size: 18),
+                Icon(
+                  Icons.monetization_on_rounded,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF81C995)
+                      : const Color(0xFF1E8E3E),
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   _getCommissionLabel(),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E8E3E)),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF81C995)
+                        : const Color(0xFF1E8E3E),
+                  ),
                 ),
               ],
             ),
@@ -209,7 +228,9 @@ class _ServicesScreenState extends State<ServicesScreen> {
 
           // ─── USSD Automation Breakdown Card ───
           Card(
-            color: const Color(0xFFF1F3F4),
+            color: Theme.of(context).brightness == Brightness.dark
+                ? const Color(0xFF1E1E1E)
+                : const Color(0xFFF1F3F4),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -218,14 +239,22 @@ class _ServicesScreenState extends State<ServicesScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Automated USSD Menu Steps:',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF5F6368)),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF9AA0A6)
+                              : const Color(0xFF5F6368),
+                        ),
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFE8F0FE),
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF1A3B66)
+                              : const Color(0xFFE8F0FE),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
@@ -336,14 +365,15 @@ class _ServicesScreenState extends State<ServicesScreen> {
 
   Widget _buildCategoryPill(int index, String title, IconData icon) {
     final isSelected = _categoryIndex == index;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ChoiceChip(
-      avatar: Icon(icon, size: 16, color: isSelected ? Colors.white : const Color(0xFF5F6368)),
+      avatar: Icon(icon, size: 16, color: isSelected ? Colors.white : (isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
       label: Text(
         title,
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: isSelected ? Colors.white : const Color(0xFF3C4043),
+          color: isSelected ? Colors.white : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043)),
         ),
       ),
       selected: isSelected,
@@ -382,7 +412,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixIcon: const Icon(Icons.phone_android_rounded),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -395,7 +425,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
               prefixIcon: const Icon(Icons.storage_rounded),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: Theme.of(context).cardColor,
             ),
             items: const [
               DropdownMenuItem(value: '1', child: Text('Daily: 350MB • GHS 3.00')),
@@ -425,7 +455,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixText: 'GHS ',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -472,7 +502,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixIcon: const Icon(Icons.tag_rounded),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -486,7 +516,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixText: 'GHS ',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -505,7 +535,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixIcon: const Icon(Icons.tv_rounded),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           items: const [
             DropdownMenuItem(value: 'DSTV', child: Text('DSTV Ghana')),
@@ -526,7 +556,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixIcon: const Icon(Icons.credit_card_rounded),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -540,7 +570,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixText: 'GHS ',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -559,7 +589,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixIcon: const Icon(Icons.account_balance_rounded),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           items: const [
             DropdownMenuItem(value: 'GCB Bank', child: Text('GCB Bank Ltd')),
@@ -583,7 +613,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixIcon: const Icon(Icons.tag_rounded),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -597,7 +627,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
             prefixText: 'GHS ',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: Theme.of(context).cardColor,
           ),
           onChanged: (_) => setState(() {}),
         ),
@@ -625,13 +655,18 @@ class _ServicesScreenState extends State<ServicesScreen> {
   }
 
   Widget _buildChip(String label, {bool isPin = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: isPin ? const Color(0xFFFFF4CC) : Colors.white,
+        color: isPin
+            ? (isDark ? const Color(0xFF3E2E04) : const Color(0xFFFFF4CC))
+            : (isDark ? const Color(0xFF2D2F31) : Colors.white),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
-          color: isPin ? const Color(0xFFF9AB00) : const Color(0xFFDADCE0),
+          color: isPin
+              ? const Color(0xFFF9AB00)
+              : (isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
         ),
       ),
       child: Text(
@@ -639,7 +674,9 @@ class _ServicesScreenState extends State<ServicesScreen> {
         style: TextStyle(
           fontSize: 10,
           fontWeight: isPin ? FontWeight.bold : FontWeight.w500,
-          color: isPin ? const Color(0xFFB06000) : const Color(0xFF3C4043),
+          color: isPin
+              ? const Color(0xFFF9AB00)
+              : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043)),
         ),
       ),
     );

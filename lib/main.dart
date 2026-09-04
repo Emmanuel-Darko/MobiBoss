@@ -185,7 +185,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
             children: [
               const Icon(Icons.lock_rounded, size: 64, color: Color(0xFF1A73E8)),
               const SizedBox(height: 16),
-              const Text('MoMo Boss is Locked', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const Text('MomoBoss is Locked', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               const SizedBox(height: 8),
               const Text('Authenticate with fingerprint or PIN to continue.', style: TextStyle(color: Color(0xFF5F6368))),
               const SizedBox(height: 24),
@@ -204,13 +204,14 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F0FE),
-                borderRadius: BorderRadius.circular(10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.asset(
+                'assets/app_logo.png',
+                width: 32,
+                height: 32,
+                fit: BoxFit.cover,
               ),
-              child: const Icon(Icons.flash_on_rounded, color: Color(0xFF1A73E8), size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -218,13 +219,18 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'MoMo Boss',
+                    'MomoBoss',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
                     'Drawer: ${provider.formatAmount(provider.currentCashInDrawer)}',
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? const Color(0xFF9AA0A6)
+                          : const Color(0xFF5F6368),
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],

@@ -388,7 +388,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
                 ),
                 child: Column(
                   children: [
-                    const Text('MOMO BOSS POS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const Text('MOMOBOSS POS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                     Text('Agent: ${till.agentCode} • ${till.tillName}', style: const TextStyle(fontSize: 11, color: Color(0xFF5F6368))),
                     const Divider(height: 16),
                     _buildReceiptRow('Type', _getTypeLabel(tx.type)),
