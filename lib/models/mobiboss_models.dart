@@ -209,6 +209,7 @@ class ReconciliationResult {
   final double cashVariance;
   final double totalCashIn;
   final double totalCashOut;
+  final double totalPettyCash;
   final double totalCommissions;
   final String status; // BALANCED, SHORTAGE, OVERAGE
   final String aiDiagnosis;
@@ -219,6 +220,7 @@ class ReconciliationResult {
     required this.cashVariance,
     required this.totalCashIn,
     required this.totalCashOut,
+    this.totalPettyCash = 0.0,
     required this.totalCommissions,
     required this.status,
     required this.aiDiagnosis,
@@ -230,6 +232,7 @@ class ReconciliationResult {
         'cashVariance': cashVariance,
         'totalCashIn': totalCashIn,
         'totalCashOut': totalCashOut,
+        'totalPettyCash': totalPettyCash,
         'totalCommissions': totalCommissions,
         'status': status,
         'aiDiagnosis': aiDiagnosis,
@@ -242,6 +245,7 @@ class ReconciliationResult {
         cashVariance: (json['cashVariance'] as num).toDouble(),
         totalCashIn: (json['totalCashIn'] as num).toDouble(),
         totalCashOut: (json['totalCashOut'] as num).toDouble(),
+        totalPettyCash: (json['totalPettyCash'] as num?)?.toDouble() ?? 0.0,
         totalCommissions: (json['totalCommissions'] as num).toDouble(),
         status: json['status'] as String,
         aiDiagnosis: json['aiDiagnosis'] as String,
@@ -459,3 +463,255 @@ class CommissionSettings {
     );
   }
 }
+
+enum PettyCashCategory {
+  shopRent,
+  electricityUtility,
+  attendantMeal,
+  airtimeFloatTopup,
+  stationery,
+  maintenance,
+  ownerDraw,
+  other,
+}
+
+class PettyCashExpense {
+  final String id;
+  final double amount;
+  final PettyCashCategory category;
+  final String note;
+  final String tellerName;
+  final DateTime timestamp;
+
+  PettyCashExpense({
+    required this.id,
+    required this.amount,
+    required this.category,
+    required this.note,
+    required this.tellerName,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'amount': amount,
+        'category': category.name,
+        'note': note,
+        'tellerName': tellerName,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  factory PettyCashExpense.fromJson(Map<String, dynamic> json) =>
+      PettyCashExpense(
+        id: json['id'] as String,
+        amount: (json['amount'] as num).toDouble(),
+        category: PettyCashCategory.values.byName(json['category'] as String),
+        note: json['note'] as String,
+        tellerName: json['tellerName'] as String? ?? 'Primary Attendant',
+        timestamp: DateTime.parse(json['timestamp'] as String),
+      );
+}
+
+enum TellerRole { owner, attendant, shiftSupervisor }
+
+class Teller {
+  final String id;
+  final String name;
+  final String phone;
+  final String pinHash;
+  final TellerRole role;
+  final bool isActive;
+  final DateTime createdAt;
+  final DateTime? lastShiftStartedAt;
+
+  Teller({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.pinHash,
+    this.role = TellerRole.attendant,
+    this.isActive = true,
+    required this.createdAt,
+    this.lastShiftStartedAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'phone': phone,
+        'pinHash': pinHash,
+        'role': role.name,
+        'isActive': isActive,
+        'createdAt': createdAt.toIso8601String(),
+        'lastShiftStartedAt': lastShiftStartedAt?.toIso8601String(),
+      };
+
+  factory Teller.fromJson(Map<String, dynamic> json) => Teller(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        phone: json['phone'] as String? ?? '',
+        pinHash: json['pinHash'] as String? ?? '',
+        role: TellerRole.values.byName(json['role'] as String? ?? 'attendant'),
+        isActive: json['isActive'] as bool? ?? true,
+        createdAt: json['createdAt'] != null
+            ? DateTime.parse(json['createdAt'] as String)
+            : DateTime.now(),
+        lastShiftStartedAt: json['lastShiftStartedAt'] != null
+            ? DateTime.parse(json['lastShiftStartedAt'] as String)
+            : null,
+      );
+}
+
+class ShiftHandover {
+  final String id;
+  final String outgoingTellerName;
+  final String incomingTellerName;
+  final DateTime handoverTime;
+  final double countedDrawerCash;
+  final double expectedDrawerCash;
+  final double cashVariance;
+  final int shiftTransactionCount;
+  final double shiftVolume;
+  final double shiftCommissions;
+  final double shiftPettyCashSpent;
+  final String notes;
+
+  ShiftHandover({
+    required this.id,
+    required this.outgoingTellerName,
+    required this.incomingTellerName,
+    required this.handoverTime,
+    required this.countedDrawerCash,
+    required this.expectedDrawerCash,
+    required this.cashVariance,
+    required this.shiftTransactionCount,
+    required this.shiftVolume,
+    required this.shiftCommissions,
+    required this.shiftPettyCashSpent,
+    required this.notes,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'outgoingTellerName': outgoingTellerName,
+        'incomingTellerName': incomingTellerName,
+        'handoverTime': handoverTime.toIso8601String(),
+        'countedDrawerCash': countedDrawerCash,
+        'expectedDrawerCash': expectedDrawerCash,
+        'cashVariance': cashVariance,
+        'shiftTransactionCount': shiftTransactionCount,
+        'shiftVolume': shiftVolume,
+        'shiftCommissions': shiftCommissions,
+        'shiftPettyCashSpent': shiftPettyCashSpent,
+        'notes': notes,
+      };
+
+  factory ShiftHandover.fromJson(Map<String, dynamic> json) => ShiftHandover(
+        id: json['id'] as String,
+        outgoingTellerName: json['outgoingTellerName'] as String,
+        incomingTellerName: json['incomingTellerName'] as String,
+        handoverTime: DateTime.parse(json['handoverTime'] as String),
+        countedDrawerCash: (json['countedDrawerCash'] as num).toDouble(),
+        expectedDrawerCash: (json['expectedDrawerCash'] as num).toDouble(),
+        cashVariance: (json['cashVariance'] as num).toDouble(),
+        shiftTransactionCount: json['shiftTransactionCount'] as int,
+        shiftVolume: (json['shiftVolume'] as num).toDouble(),
+        shiftCommissions: (json['shiftCommissions'] as num).toDouble(),
+        shiftPettyCashSpent:
+            (json['shiftPettyCashSpent'] as num?)?.toDouble() ?? 0.0,
+        notes: json['notes'] as String? ?? '',
+      );
+}
+
+class CustomUssdRule {
+  final String id;
+  final NetworkProvider network;
+  final TransactionType transactionType;
+  final String customRootCode;
+  final List<String> customSteps;
+  final bool isEnabled;
+
+  CustomUssdRule({
+    required this.id,
+    required this.network,
+    required this.transactionType,
+    required this.customRootCode,
+    required this.customSteps,
+    this.isEnabled = true,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'network': network.name,
+        'transactionType': transactionType.name,
+        'customRootCode': customRootCode,
+        'customSteps': customSteps,
+        'isEnabled': isEnabled,
+      };
+
+  factory CustomUssdRule.fromJson(Map<String, dynamic> json) => CustomUssdRule(
+        id: json['id'] as String,
+        network: NetworkProvider.values.byName(json['network'] as String),
+        transactionType:
+            TransactionType.values.byName(json['transactionType'] as String),
+        customRootCode: json['customRootCode'] as String,
+        customSteps: List<String>.from(json['customSteps'] as List),
+        isEnabled: json['isEnabled'] as bool? ?? true,
+      );
+}
+
+enum FraudRiskLevel { safe, warning, suspicious, highRisk }
+
+class FraudCheckResult {
+  final FraudRiskLevel riskLevel;
+  final String message;
+  final bool isSenderAuthentic;
+  final bool isDuplicateReference;
+  final bool isTimestampValid;
+
+  FraudCheckResult({
+    required this.riskLevel,
+    required this.message,
+    required this.isSenderAuthentic,
+    required this.isDuplicateReference,
+    required this.isTimestampValid,
+  });
+
+  bool get isFraudSuspicious =>
+      riskLevel == FraudRiskLevel.suspicious ||
+      riskLevel == FraudRiskLevel.highRisk ||
+      !isSenderAuthentic ||
+      isDuplicateReference;
+
+  String get reason => message;
+}
+
+class BluetoothPrinterInfo {
+  final String name;
+  final String address;
+  final bool isConnected;
+  final int paperWidthMm; // 58 or 80
+
+  BluetoothPrinterInfo({
+    required this.name,
+    required this.address,
+    this.isConnected = false,
+    this.paperWidthMm = 58,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'address': address,
+        'isConnected': isConnected,
+        'paperWidthMm': paperWidthMm,
+      };
+
+  factory BluetoothPrinterInfo.fromJson(Map<String, dynamic> json) =>
+      BluetoothPrinterInfo(
+        name: json['name'] as String,
+        address: json['address'] as String,
+        isConnected: json['isConnected'] as bool? ?? false,
+        paperWidthMm: json['paperWidthMm'] as int? ?? 58,
+      );
+}
+

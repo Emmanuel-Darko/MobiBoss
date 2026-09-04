@@ -20,6 +20,7 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
   bool _isUssdStepsExpanded = false;
+  bool _useCrossNetworkMmi = false;
 
   final List<double> _quickAmounts = [50, 100, 200, 500, 1000];
 
@@ -51,14 +52,26 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
     final provider = context.watch<MoMoProvider>();
     final activeTill = provider.selectedTill;
     final amount = double.tryParse(_amountController.text) ?? 0.0;
-    final customerPhone = _phoneController.text.trim().isEmpty ? '024XXXXXXX' : _phoneController.text.trim();
+    final rawPhone = _phoneController.text.trim();
+    final customerPhone = rawPhone.isEmpty ? '024XXXXXXX' : rawPhone;
+    final detectedNet = rawPhone.length >= 3 ? PhoneHelper.detectNetwork(PhoneHelper.normalize(rawPhone)) : null;
+    final isCrossNetwork = detectedNet != null && detectedNet != activeTill.network;
 
-    final plan = UssdService.buildMultiStepPlan(
-      till: activeTill,
-      type: _selectedType,
-      customerPhone: customerPhone,
-      amount: amount,
-    );
+    final MultiStepUssdPlan plan;
+    if (_useCrossNetworkMmi && isCrossNetwork) {
+      plan = UssdService.buildCrossNetworkMmiPlan(
+        destinationNetwork: detectedNet,
+        customerPhone: customerPhone,
+        amount: amount,
+      );
+    } else {
+      plan = UssdService.buildMultiStepPlan(
+        till: activeTill,
+        type: _selectedType,
+        customerPhone: customerPhone,
+        amount: amount,
+      );
+    }
 
     if (_transactMode == 1) {
       return Column(
@@ -297,6 +310,44 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
               },
             ),
           ],
+          if (isCrossNetwork) ...[
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF1F2937)
+                    : const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF374151)
+                      : const Color(0xFFBFDBFE),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.swap_calls_rounded, size: 18, color: Color(0xFF1A73E8)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Cross-network: ${detectedNet.name.toUpperCase()} recipient from ${activeTill.network.name.toUpperCase()} Till',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  FilterChip(
+                    label: const Text('Use *170# MMI', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                    selected: _useCrossNetworkMmi,
+                    selectedColor: const Color(0xFF1A73E8),
+                    checkmarkColor: Colors.white,
+                    labelStyle: TextStyle(color: _useCrossNetworkMmi ? Colors.white : null),
+                    onSelected: (val) => setState(() => _useCrossNetworkMmi = val),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
 
           // 4. Amount Input
@@ -466,12 +517,21 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
               );
 
               // 1. Trigger automated multi-step USSD session
-              await UssdService.initiateAutomatedSession(
-                till: activeTill,
-                type: _selectedType,
-                customerPhone: _phoneController.text,
-                amount: amount,
-              );
+              if (_useCrossNetworkMmi && isCrossNetwork) {
+                await UssdService.initiateCustomAutomatedSession(
+                  rootCode: plan.rootCode,
+                  steps: plan.steps,
+                  fallbackShortCode: plan.displayShortCode,
+                  simSlot: activeTill.simSlot.contains('2') ? 1 : 0,
+                );
+              } else {
+                await UssdService.initiateAutomatedSession(
+                  till: activeTill,
+                  type: _selectedType,
+                  customerPhone: _phoneController.text,
+                  amount: amount,
+                );
+              }
 
               _amountController.clear();
               _phoneController.clear();

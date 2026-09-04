@@ -304,6 +304,25 @@ class _LedgerScreenState extends State<LedgerScreen> {
                                               style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: netColor),
                                             ),
                                           ),
+                                          const SizedBox(width: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF1E8E3E).withValues(alpha: 0.12),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.shield_rounded, size: 9, color: Color(0xFF1E8E3E)),
+                                                SizedBox(width: 2),
+                                                Text(
+                                                  'Verified',
+                                                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF1E8E3E)),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                         ],
                                       ),
                                       const SizedBox(height: 3),
@@ -344,6 +363,13 @@ class _LedgerScreenState extends State<LedgerScreen> {
                                   ],
                                 ),
                                 const SizedBox(width: 4),
+                                IconButton(
+                                  icon: const Icon(Icons.print_rounded, size: 18, color: Color(0xFF1A73E8)),
+                                  tooltip: '1-Tap Thermal Print',
+                                  constraints: const BoxConstraints(),
+                                  padding: const EdgeInsets.all(4),
+                                  onPressed: () => ReceiptService.printReceipt(context: context, tx: tx, till: matchingTill),
+                                ),
                                 const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFFBDC1C6)),
                               ],
                             ),

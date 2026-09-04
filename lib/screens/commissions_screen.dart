@@ -140,6 +140,17 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  // Gamification Milestones
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildMilestoneBadge('25%', 'Starter', dailyProgress >= 0.25),
+                      _buildMilestoneBadge('50%', 'Halfway', dailyProgress >= 0.50),
+                      _buildMilestoneBadge('75%', 'Strong', dailyProgress >= 0.75),
+                      _buildMilestoneBadge('100%', 'Champion', dailyProgress >= 1.0),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -306,7 +317,7 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
             final amt = entry.value;
             final pct = total > 0 ? (amt / total) : 0.0;
 
-            Color barColor;
+            Color barColor = const Color(0xFF1A73E8);
             switch (entry.key) {
               case NetworkProvider.mtn:
                 barColor = const Color(0xFFF9AB00);
@@ -631,6 +642,53 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
               Navigator.pop(ctx);
             },
             child: const Text('Save Target'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMilestoneBadge(String percent, String label, bool isUnlocked) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isUnlocked
+            ? const Color(0xFFFFD54F).withValues(alpha: 0.25)
+            : Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isUnlocked ? const Color(0xFFFFD54F) : Colors.white.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isUnlocked ? Icons.stars_rounded : Icons.lock_outline_rounded,
+            size: 12,
+            color: isUnlocked ? const Color(0xFFFFD54F) : Colors.white54,
+          ),
+          const SizedBox(width: 4),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                percent,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: isUnlocked ? const Color(0xFFFFD54F) : Colors.white70,
+                ),
+              ),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 8,
+                  color: isUnlocked ? Colors.white : Colors.white38,
+                ),
+              ),
+            ],
           ),
         ],
       ),

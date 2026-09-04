@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -374,5 +375,206 @@ _${shift.aiDiagnosis}_''';
       case TransactionType.bankTransfer:
         return 'Bank Transfer';
     }
+  }
+
+  // ==========================================
+  // BLUETOOTH DIRECT ESC/POS PRINTING
+  // ==========================================
+  static const MethodChannel _channel = MethodChannel('com.kodetech.mobiboss/ussd');
+
+  static Future<bool> isBluetoothEnabled() async {
+    try {
+      final bool? enabled = await _channel.invokeMethod<bool>('isBluetoothEnabled');
+      return enabled == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<List<BluetoothPrinterInfo>> getPairedPrinters() async {
+    try {
+      final list = await _channel.invokeMethod<List>('getPairedBluetoothPrinters');
+      if (list == null) return [];
+      return list.map((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+        return BluetoothPrinterInfo(
+          name: map['name'] as String? ?? 'Unknown Printer',
+          address: map['address'] as String? ?? '',
+        );
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<bool> printRawBytes({
+    required String printerAddress,
+    required List<int> bytes,
+  }) async {
+    try {
+      final res = await _channel.invokeMethod<bool>('printRawEscPos', {
+        'address': printerAddress,
+        'bytes': Uint8List.fromList(bytes),
+      });
+      return res == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Generates ESC/POS byte sequence for thermal receipt (58mm or 80mm)
+  static List<int> buildEscPosTransactionReceipt({
+    required TransactionRecord tx,
+    required Till till,
+    int paperWidthMm = 58,
+  }) {
+    final bytes = <int>[];
+    final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+    final formattedDate = dateFormat.format(tx.timestamp);
+
+    // Initialize printer
+    bytes.addAll([0x1B, 0x40]);
+
+    // Center alignment
+    bytes.addAll([0x1B, 0x61, 0x01]);
+
+    // Double height & width header
+    bytes.addAll([0x1D, 0x21, 0x11]);
+    bytes.addAll('MOBIBOSS POS\n'.codeUnits);
+
+    // Normal text
+    bytes.addAll([0x1D, 0x21, 0x00]);
+    bytes.addAll('Ghana Mobile Money Agent\n'.codeUnits);
+    bytes.addAll('Agent: ${till.agentCode} | Till: ${till.tillName}\n'.codeUnits);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    // Transaction Type (Bold)
+    bytes.addAll([0x1B, 0x45, 0x01]);
+    bytes.addAll('${_getTypeTitle(tx.type).toUpperCase()}\n'.codeUnits);
+    bytes.addAll('[SUCCESSFUL / CONFIRMED]\n'.codeUnits);
+    bytes.addAll([0x1B, 0x45, 0x00]);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    // Left alignment for details
+    bytes.addAll([0x1B, 0x61, 0x00]);
+    bytes.addAll('Date: $formattedDate\n'.codeUnits);
+    bytes.addAll('Customer: ${tx.customerPhone}\n'.codeUnits);
+    bytes.addAll('Reference: ${tx.reference}\n'.codeUnits);
+    bytes.addAll('Till: ${till.network.name.toUpperCase()}\n'.codeUnits);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    // Amount (Double Height)
+    bytes.addAll([0x1B, 0x45, 0x01]);
+    bytes.addAll([0x1D, 0x21, 0x01]);
+    bytes.addAll('Amount: GHS ${_fmt(tx.amount)}\n'.codeUnits);
+    bytes.addAll([0x1D, 0x21, 0x00]);
+    bytes.addAll([0x1B, 0x45, 0x00]);
+
+    if (tx.fee > 0) {
+      bytes.addAll('Fee: GHS ${_fmt(tx.fee)}\n'.codeUnits);
+    }
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    // Center alignment footer
+    bytes.addAll([0x1B, 0x61, 0x01]);
+    bytes.addAll('Thank you for your business!\n'.codeUnits);
+    bytes.addAll('Powered by MobiBoss\n\n\n'.codeUnits);
+
+    // Cut paper
+    bytes.addAll([0x1D, 0x56, 0x42, 0x00]);
+
+    return bytes;
+  }
+
+  /// Generates ESC/POS byte sequence for Shift Settlement report
+  static List<int> buildEscPosShiftReport({
+    required ShiftRecord shift,
+    int paperWidthMm = 58,
+  }) {
+    final bytes = <int>[];
+    final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+
+    bytes.addAll([0x1B, 0x40]);
+    bytes.addAll([0x1B, 0x61, 0x01]);
+    bytes.addAll([0x1D, 0x21, 0x11]);
+    bytes.addAll('MOBIBOSS POS\n'.codeUnits);
+    bytes.addAll([0x1D, 0x21, 0x00]);
+    bytes.addAll('SHIFT #${shift.shiftNumber} SETTLEMENT\n'.codeUnits);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll([0x1B, 0x61, 0x00]);
+    bytes.addAll('Start: ${dateFormat.format(shift.startTime)}\n'.codeUnits);
+    bytes.addAll('End:   ${dateFormat.format(shift.endTime)}\n'.codeUnits);
+    bytes.addAll('Tx Count: ${shift.transactionCount}\n'.codeUnits);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll('Opening Cash:   GHS ${_fmt(shift.openingCash)}\n'.codeUnits);
+    bytes.addAll('Total Inflow:   GHS ${_fmt(shift.totalCashIn)}\n'.codeUnits);
+    bytes.addAll('Total Outflow:  GHS ${_fmt(shift.totalCashOut)}\n'.codeUnits);
+    bytes.addAll('Commission:     GHS ${_fmt(shift.totalCommissions)}\n'.codeUnits);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll([0x1B, 0x45, 0x01]);
+    bytes.addAll('Expected Cash:  GHS ${_fmt(shift.expectedCash)}\n'.codeUnits);
+    bytes.addAll('Counted Cash:   GHS ${_fmt(shift.closingCash)}\n'.codeUnits);
+    bytes.addAll('Variance:       ${shift.cashVariance >= 0 ? "+" : ""}GHS ${_fmt(shift.cashVariance)}\n'.codeUnits);
+    bytes.addAll('Status:         ${shift.status}\n'.codeUnits);
+    bytes.addAll([0x1B, 0x45, 0x00]);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll([0x1B, 0x61, 0x01]);
+    bytes.addAll('${shift.aiDiagnosis}\n\n\n'.codeUnits);
+    bytes.addAll([0x1D, 0x56, 0x42, 0x00]);
+
+    return bytes;
+  }
+
+  /// Generates ESC/POS byte sequence for Shift Handover report
+  static List<int> buildEscPosHandoverReport({
+    required ShiftHandover handover,
+    int paperWidthMm = 58,
+  }) {
+    final bytes = <int>[];
+    final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+
+    bytes.addAll([0x1B, 0x40]);
+    bytes.addAll([0x1B, 0x61, 0x01]);
+    bytes.addAll([0x1D, 0x21, 0x11]);
+    bytes.addAll('MOBIBOSS POS\n'.codeUnits);
+    bytes.addAll([0x1D, 0x21, 0x00]);
+    bytes.addAll('TELLER SHIFT HANDOVER\n'.codeUnits);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll([0x1B, 0x61, 0x00]);
+    bytes.addAll('Outgoing: ${handover.outgoingTellerName}\n'.codeUnits);
+    bytes.addAll('Incoming: ${handover.incomingTellerName}\n'.codeUnits);
+    bytes.addAll('Time:     ${dateFormat.format(handover.handoverTime)}\n'.codeUnits);
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll('Shift Tx Count: ${handover.shiftTransactionCount}\n'.codeUnits);
+    bytes.addAll('Shift Volume:   GHS ${_fmt(handover.shiftVolume)}\n'.codeUnits);
+    bytes.addAll('Shift Comm:     GHS ${_fmt(handover.shiftCommissions)}\n'.codeUnits);
+    if (handover.shiftPettyCashSpent > 0) {
+      bytes.addAll('Petty Cash:     GHS ${_fmt(handover.shiftPettyCashSpent)}\n'.codeUnits);
+    }
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll([0x1B, 0x45, 0x01]);
+    bytes.addAll('Expected Cash:  GHS ${_fmt(handover.expectedDrawerCash)}\n'.codeUnits);
+    bytes.addAll('Counted Cash:   GHS ${_fmt(handover.countedDrawerCash)}\n'.codeUnits);
+    bytes.addAll('Variance:       ${handover.cashVariance >= 0 ? "+" : ""}GHS ${_fmt(handover.cashVariance)}\n'.codeUnits);
+    bytes.addAll([0x1B, 0x45, 0x00]);
+
+    if (handover.notes.isNotEmpty) {
+      bytes.addAll('Notes: ${handover.notes}\n'.codeUnits);
+    }
+    bytes.addAll('--------------------------------\n'.codeUnits);
+
+    bytes.addAll([0x1B, 0x61, 0x01]);
+    bytes.addAll('Sign Outgoing: ________________\n'.codeUnits);
+    bytes.addAll('Sign Incoming: ________________\n\n\n'.codeUnits);
+    bytes.addAll([0x1D, 0x56, 0x42, 0x00]);
+
+    return bytes;
   }
 }

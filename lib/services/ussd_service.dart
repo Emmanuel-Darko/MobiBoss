@@ -60,8 +60,39 @@ class UssdService {
     required TransactionType type,
     required String customerPhone,
     required double amount,
+    List<CustomUssdRule>? customRules,
   }) {
     final amtFormatted = amount.toStringAsFixed(0);
+
+    // Check if custom rule exists for this network and transaction type
+    if (customRules != null) {
+      final custom = customRules.firstWhere(
+        (r) => r.network == till.network && r.transactionType == type && r.isEnabled,
+        orElse: () => CustomUssdRule(
+          id: '',
+          network: till.network,
+          transactionType: type,
+          customRootCode: '',
+          customSteps: [],
+          isEnabled: false,
+        ),
+      );
+
+      if (custom.isEnabled && custom.customSteps.isNotEmpty) {
+        final substitutedSteps = custom.customSteps.map((step) {
+          return step
+              .replaceAll('{phone}', customerPhone)
+              .replaceAll('{amount}', amtFormatted)
+              .replaceAll('{ref}', 'POS');
+        }).toList();
+
+        return MultiStepUssdPlan(
+          rootCode: custom.customRootCode.isNotEmpty ? custom.customRootCode : till.ussdPrefix,
+          steps: substitutedSteps,
+          displayShortCode: '${custom.customRootCode} (${substitutedSteps.length} steps)',
+        );
+      }
+    }
 
     switch (till.network) {
       case NetworkProvider.mtn:
@@ -126,6 +157,30 @@ class UssdService {
           displayShortCode: '*422*1*$customerPhone*$amtFormatted#',
         );
     }
+  }
+
+  /// Builds GhIPSS Mobile Money Interoperability (MMI) cross-network transfer sequence
+  static MultiStepUssdPlan buildCrossNetworkMmiPlan({
+    required NetworkProvider destinationNetwork,
+    required String customerPhone,
+    required double amount,
+    String reference = 'POS',
+  }) {
+    final amtFormatted = amount.toStringAsFixed(0);
+    String netOption = '1'; // 1: Telecel, 2: AT, 3: G-Money
+    if (destinationNetwork == NetworkProvider.telecel) {
+      netOption = '1';
+    } else if (destinationNetwork == NetworkProvider.at) {
+      netOption = '2';
+    } else if (destinationNetwork == NetworkProvider.gmoney) {
+      netOption = '3';
+    }
+
+    return MultiStepUssdPlan(
+      rootCode: '*170#',
+      steps: ['1', '2', netOption, customerPhone, customerPhone, amtFormatted, reference],
+      displayShortCode: '*170*1*2*$netOption*$customerPhone*$amtFormatted#',
+    );
   }
 
   /// Builds multi-step sequence for expanded agent services: Airtime, Data, ECG, Water, PayTV, Bank

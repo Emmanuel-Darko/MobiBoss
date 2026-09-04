@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/mobiboss_models.dart';
 import '../providers/mobiboss_provider.dart';
 import '../services/receipt_service.dart';
+import 'shift_handover_screen.dart';
 
 class ReconciliationScreen extends StatefulWidget {
   const ReconciliationScreen({super.key});
@@ -350,6 +351,10 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
           ),
           const SizedBox(height: 14),
 
+          // ─── 4b. Drawer Petty Cash Expenses Logger ───
+          _buildPettyCashCard(context, provider),
+          const SizedBox(height: 14),
+
           // ─── 5. Live Reconciliation Variance & EOD Settlement Card ───
           if (result != null) ...[
             _buildResultCard(result, provider),
@@ -468,6 +473,56 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                                       ),
                                     ),
                                   ),
+                                  const SizedBox(width: 6),
+                                  Builder(builder: (ctx) {
+                                    final fraud = provider.checkSmsFraud(record);
+                                    if (fraud.isFraudSuspicious) {
+                                      return Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: isDark ? const Color(0xFF4A1818) : const Color(0xFFFCE8E6),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.warning_amber_rounded, size: 10, color: Color(0xFFD93025)),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              'Suspicious',
+                                              style: TextStyle(
+                                                fontSize: 8,
+                                                fontWeight: FontWeight.bold,
+                                                color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: isDark ? const Color(0xFF13321C) : const Color(0xFFE6F4EA),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.verified_rounded, size: 10, color: Color(0xFF1E8E3E)),
+                                          const SizedBox(width: 2),
+                                          Text(
+                                            'Verified',
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.bold,
+                                              color: isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }),
                                 ],
                               ),
                               const SizedBox(height: 2),
@@ -596,6 +651,11 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
               color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
             ),
             _buildResultRow(
+              'Petty Cash Expenses (-)',
+              'GHS ${result.totalPettyCash.toStringAsFixed(2)}',
+              color: const Color(0xFFE37400),
+            ),
+            _buildResultRow(
               'Total Commissions Earned',
               'GHS ${result.totalCommissions.toStringAsFixed(2)}',
               color: const Color(0xFF1A73E8),
@@ -615,25 +675,238 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
             ),
             const SizedBox(height: 12),
 
-            // ─── Close Shift & Print Settlement Action ───
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: isDark ? const Color(0xFF1A73E8) : const Color(0xFF202124),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            // ─── Shift Handover & Close Actions ───
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.swap_horizontal_circle_rounded, size: 18),
+                    label: const Text(
+                      'Shift Handover',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ShiftHandoverScreen()),
+                      );
+                    },
+                  ),
                 ),
-                icon: const Icon(Icons.lock_clock_rounded, size: 18),
-                label: Text(
-                  'Close Shift #${provider.currentShiftNumber} & Print Settlement Slip',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: isDark ? const Color(0xFF1A73E8) : const Color(0xFF202124),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.lock_clock_rounded, size: 18),
+                    label: Text(
+                      'Close Shift #${provider.currentShiftNumber}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onPressed: () => _showShiftCloseDialog(context, provider),
+                  ),
                 ),
-                onPressed: () => _showShiftCloseDialog(context, provider),
-              ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPettyCashCard(BuildContext context, MoMoProvider provider) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final expenses = provider.todayPettyCashExpenses;
+    final totalSpent = provider.totalTodayPettyCash;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.shopping_bag_outlined, color: Color(0xFFE37400), size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Petty Cash Expenses (${expenses.length})',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ],
+                ),
+                FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 16),
+                  label: const Text('Log Expense', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  onPressed: () => _showAddPettyCashDialog(context, provider),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Drawer cash taken out for shop expenses, food, utilities, etc.',
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+              ),
+            ),
+            if (expenses.isNotEmpty) ...[
+              const Divider(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Total Petty Cash Spent:',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF3C4043)),
+                  ),
+                  Text(
+                    'GHS ${totalSpent.toStringAsFixed(2)}',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFE37400)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...expenses.take(3).map((exp) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE37400).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          exp.category.name.toUpperCase(),
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFE37400)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          exp.note.isNotEmpty ? exp.note : 'Shop expense',
+                          style: TextStyle(fontSize: 11, color: isDark ? const Color(0xFFE8EAED) : const Color(0xFF202124)),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Text(
+                        '- GHS ${exp.amount.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFD93025)),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline_rounded, size: 14, color: Colors.grey),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () => provider.deletePettyCashExpense(exp.id),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddPettyCashDialog(BuildContext context, MoMoProvider provider) {
+    final amountCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    PettyCashCategory selectedCategory = PettyCashCategory.attendantMeal;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Log Petty Cash Expense'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Record cash taken from drawer for expenses:', style: TextStyle(fontSize: 12)),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<PettyCashCategory>(
+                    initialValue: selectedCategory,
+                    decoration: InputDecoration(
+                      labelText: 'Category',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      isDense: true,
+                    ),
+                    items: PettyCashCategory.values.map((c) {
+                      return DropdownMenuItem(
+                        value: c,
+                        child: Text(c.name.toUpperCase(), style: const TextStyle(fontSize: 12)),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => selectedCategory = val);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: amountCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Amount (GHS)',
+                      prefixText: 'GHS ',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: noteCtrl,
+                    decoration: InputDecoration(
+                      labelText: 'Note / Reason (e.g. Lunch, Receipt roll)',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFE37400)),
+                onPressed: () async {
+                  final amt = double.tryParse(amountCtrl.text);
+                  if (amt == null || amt <= 0) return;
+                  Navigator.pop(ctx);
+                  final expense = PettyCashExpense(
+                    id: 'pc_${DateTime.now().millisecondsSinceEpoch}',
+                    amount: amt,
+                    category: selectedCategory,
+                    note: noteCtrl.text.trim(),
+                    tellerName: provider.activeTeller?.name ?? 'Primary Attendant',
+                    timestamp: DateTime.now(),
+                  );
+                  await provider.addPettyCashExpense(expense);
+                },
+                child: const Text('Save Expense'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -663,7 +936,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
             label: const Text('Close & Share'),
             onPressed: () async {
               Navigator.pop(ctx);
-              final shift = provider.closeCurrentShift(countedCash: counted, context: context);
+              final shift = await provider.closeCurrentShift(countedCash: counted, context: context);
               await ReceiptService.shareShiftSettlementPdf(shift: shift);
             },
           ),
@@ -673,8 +946,10 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
             label: const Text('Close & Print'),
             onPressed: () async {
               Navigator.pop(ctx);
-              final shift = provider.closeCurrentShift(countedCash: counted, context: context);
-              await ReceiptService.printShiftSettlementReport(context: context, shift: shift);
+              final shift = await provider.closeCurrentShift(countedCash: counted, context: context);
+              if (context.mounted) {
+                await ReceiptService.printShiftSettlementReport(context: context, shift: shift);
+              }
             },
           ),
         ],

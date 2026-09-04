@@ -1,5 +1,8 @@
 package com.kodetech.mobiboss
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -9,10 +12,13 @@ import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.OutputStream
+import java.util.UUID
 
 class MainActivity : FlutterFragmentActivity() {
     private val CHANNEL = "com.kodetech.mobiboss/ussd"
     private var methodChannel: MethodChannel? = null
+    private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -121,6 +127,80 @@ class MainActivity : FlutterFragmentActivity() {
                     } else {
                         result.error("INVALID_CODE", "USSD code was null", null)
                     }
+                }
+                // ==========================================
+                // BLUETOOTH THERMAL PRINTER
+                // ==========================================
+                "isBluetoothEnabled" -> {
+                    try {
+                        val adapter = BluetoothAdapter.getDefaultAdapter()
+                        result.success(adapter != null && adapter.isEnabled)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "getPairedBluetoothPrinters" -> {
+                    try {
+                        val adapter = BluetoothAdapter.getDefaultAdapter()
+                        if (adapter == null || !adapter.isEnabled) {
+                            result.success(emptyList<Map<String, Any>>())
+                            return@setMethodCallHandler
+                        }
+
+                        val bondedDevices: Set<BluetoothDevice>? = adapter.bondedDevices
+                        val list = mutableListOf<Map<String, Any>>()
+                        bondedDevices?.forEach { device ->
+                            list.add(
+                                mapOf(
+                                    "name" to (device.name ?: "Unknown Printer"),
+                                    "address" to device.address
+                                )
+                            )
+                        }
+                        result.success(list)
+                    } catch (e: Exception) {
+                        result.error("BT_ERROR", e.message, null)
+                    }
+                }
+                "printRawEscPos" -> {
+                    val address = call.argument<String>("address")
+                    val rawBytes = call.argument<ByteArray>("bytes")
+
+                    if (address.isNullOrEmpty() || rawBytes == null) {
+                        result.error("INVALID_ARGS", "Device address or bytes was null", null)
+                        return@setMethodCallHandler
+                    }
+
+                    Thread {
+                        var socket: BluetoothSocket? = null
+                        var outputStream: OutputStream? = null
+                        try {
+                            val adapter = BluetoothAdapter.getDefaultAdapter()
+                            val device = adapter.getRemoteDevice(address)
+                            adapter.cancelDiscovery()
+
+                            socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                            socket.connect()
+                            outputStream = socket.outputStream
+
+                            outputStream.write(rawBytes)
+                            outputStream.flush()
+                            Thread.sleep(150)
+
+                            runOnUiThread {
+                                result.success(true)
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.error("PRINT_FAILED", e.message, null)
+                            }
+                        } finally {
+                            try {
+                                outputStream?.close()
+                                socket?.close()
+                            } catch (_: Exception) {}
+                        }
+                    }.start()
                 }
                 else -> result.notImplemented()
             }

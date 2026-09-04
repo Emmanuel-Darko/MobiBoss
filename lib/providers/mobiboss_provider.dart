@@ -4,9 +4,11 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
 import '../models/mobiboss_models.dart';
+import '../services/db_service.dart';
 import '../services/sms_parser_service.dart';
 import '../services/storage_service.dart';
 import '../services/ussd_service.dart';
+import '../services/receipt_service.dart';
 
 class MoMoProvider extends ChangeNotifier {
   final _uuid = const Uuid();
@@ -33,6 +35,15 @@ class MoMoProvider extends ChangeNotifier {
   final List<SmsRecord> _smsRecords = [];
   List<ShiftRecord> _shiftHistory = [];
   List<CustomerContact> _customerContacts = [];
+
+  // Phase 2 & 3 State
+  List<PettyCashExpense> _pettyCashExpenses = [];
+  List<Teller> _tellers = [];
+  Teller? _activeTeller;
+  List<ShiftHandover> _shiftHandovers = [];
+  List<CustomUssdRule> _customUssdRules = [];
+  BluetoothPrinterInfo? _selectedPrinter;
+  bool _autoPrintReceipts = false;
 
   // Smart sender discovery
   final Map<String, SenderInfo> _discoveredSenders = {};
@@ -61,7 +72,112 @@ class MoMoProvider extends ChangeNotifier {
   double get dailyCommissionTarget => _dailyCommissionTarget;
   double get monthlyCommissionTarget => _monthlyCommissionTarget;
 
+  List<PettyCashExpense> get pettyCashExpenses => List.unmodifiable(_pettyCashExpenses);
+  List<Teller> get tellers => List.unmodifiable(_tellers);
+  Teller? get activeTeller => _activeTeller;
+  List<ShiftHandover> get shiftHandovers => List.unmodifiable(_shiftHandovers);
+  List<CustomUssdRule> get customUssdRules => List.unmodifiable(_customUssdRules);
+  BluetoothPrinterInfo? get selectedPrinter => _selectedPrinter;
+  bool get autoPrintReceipts => _autoPrintReceipts;
+
   int get currentShiftNumber => _shiftHistory.length + 1;
+
+  List<PettyCashExpense> get todayPettyCashExpenses {
+    final now = DateTime.now();
+    return _pettyCashExpenses
+        .where((e) => e.timestamp.year == now.year && e.timestamp.month == now.month && e.timestamp.day == now.day)
+        .toList();
+  }
+
+  double get todayPettyCashTotal {
+    final now = DateTime.now();
+    return _pettyCashExpenses
+        .where((e) => e.timestamp.year == now.year && e.timestamp.month == now.month && e.timestamp.day == now.day)
+        .fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  double get totalTodayPettyCash => todayPettyCashTotal;
+
+  List<TransactionRecord> get todayTransactions {
+    final now = DateTime.now();
+    return _transactions.where((tx) {
+      return tx.timestamp.year == now.year && tx.timestamp.month == now.month && tx.timestamp.day == now.day;
+    }).toList();
+  }
+
+  double get todayInflow => todayTransactions.where((t) =>
+      t.type == TransactionType.cashIn ||
+      t.type == TransactionType.airtime ||
+      t.type == TransactionType.dataBundle ||
+      t.type == TransactionType.ecgElectricity ||
+      t.type == TransactionType.ghanaWater ||
+      t.type == TransactionType.payTv).fold(0.0, (sum, t) => sum + t.amount);
+
+  double get todayOutflow => todayTransactions.where((t) =>
+      t.type == TransactionType.cashOut ||
+      t.type == TransactionType.bankTransfer).fold(0.0, (sum, t) => sum + t.amount);
+
+  double get todayVolume => todayTransactions.fold(0.0, (sum, t) => sum + t.amount);
+  double get todayCommission => todayTransactions.fold(0.0, (sum, t) => sum + t.commission);
+
+  double get expectedDrawerCash => _initialDrawerOpeningBalance + todayInflow - todayOutflow - todayPettyCashTotal;
+  double get dailyGoalProgress => _dailyCommissionTarget > 0 ? (todayCommission / _dailyCommissionTarget).clamp(0.0, 1.0) : 0.0;
+  double get projectedMonthlyCommission => todayCommission * 30;
+
+  double get weeklyCommission {
+    final now = DateTime.now();
+    return _transactions
+        .where((t) => now.difference(t.timestamp).inDays <= 7)
+        .fold(0.0, (sum, t) => sum + t.commission);
+  }
+
+  double get monthlyCommission {
+    final now = DateTime.now();
+    return _transactions
+        .where((t) => t.timestamp.year == now.year && t.timestamp.month == now.month)
+        .fold(0.0, (sum, t) => sum + t.commission);
+  }
+
+  double get totalCommission => _transactions.fold(0.0, (sum, t) => sum + t.commission);
+
+  Map<NetworkProvider, double> get commissionsByNetwork {
+    final map = <NetworkProvider, double>{
+      NetworkProvider.mtn: 0.0,
+      NetworkProvider.telecel: 0.0,
+      NetworkProvider.at: 0.0,
+      NetworkProvider.gmoney: 0.0,
+    };
+    for (final tx in _transactions) {
+      map[tx.network] = (map[tx.network] ?? 0.0) + tx.commission;
+    }
+    return map;
+  }
+
+  List<DailyPerformance> get last7DaysPerformance {
+    final list = <DailyPerformance>[];
+    final now = DateTime.now();
+    final dayFormat = DateFormat('E');
+
+    for (int i = 6; i >= 0; i--) {
+      final targetDate = now.subtract(Duration(days: i));
+      final dayTxs = _transactions.where((t) =>
+          t.timestamp.year == targetDate.year &&
+          t.timestamp.month == targetDate.month &&
+          t.timestamp.day == targetDate.day);
+
+      final vol = dayTxs.fold(0.0, (sum, t) => sum + t.amount);
+      final comm = dayTxs.fold(0.0, (sum, t) => sum + t.commission);
+
+      list.add(DailyPerformance(
+        dayLabel: dayFormat.format(targetDate),
+        date: targetDate,
+        volume: vol,
+        commission: comm,
+        transactionCount: dayTxs.length,
+      ));
+    }
+    return list;
+  }
 
   /// Formats amount with thousand separators taking privacy mask into account
   String formatAmount(double amount, {String prefix = 'GHS '}) {
@@ -120,9 +236,12 @@ class MoMoProvider extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    // 1. Load persisted data
-    final savedTills = await StorageService.loadTills();
-    if (savedTills != null && savedTills.isNotEmpty) {
+    // 1. SQLite Database & Migration Check
+    await DbService.checkAndMigrateFromPrefs();
+
+    // 2. Load Tills from DB
+    final savedTills = await DbService.getTills();
+    if (savedTills.isNotEmpty) {
       _tills = savedTills;
     } else {
       _tills = [
@@ -171,14 +290,52 @@ class MoMoProvider extends ChangeNotifier {
           agentCode: 'GM-ACC-8832',
         ),
       ];
-      await StorageService.saveTills(_tills);
+      for (final t in _tills) {
+        await DbService.insertTill(t);
+      }
     }
 
-    final savedTransactions = await StorageService.loadTransactions();
-    if (savedTransactions.isNotEmpty) {
-      _transactions = savedTransactions;
+    // 3. Load Transactions from DB
+    _transactions = await DbService.getTransactions(limit: 300);
+
+    // 4. Load Petty Cash, Tellers, Handovers, Custom Rules from DB
+    _pettyCashExpenses = await DbService.getPettyCashExpenses();
+    _shiftHandovers = await DbService.getShiftHandovers();
+    _customUssdRules = await DbService.getCustomUssdRules();
+    _customerContacts = await DbService.getContacts();
+    _shiftHistory = await DbService.getClosedShifts();
+
+    // 5. Load Tellers
+    final savedTellers = await DbService.getTellers();
+    if (savedTellers.isNotEmpty) {
+      _tellers = savedTellers;
+      _activeTeller = _tellers.firstWhere((t) => t.isActive, orElse: () => _tellers.first);
+    } else {
+      final defaultOwner = Teller(
+        id: 'teller_owner',
+        name: 'Shop Owner',
+        phone: '0244123456',
+        pinHash: '1234',
+        role: TellerRole.owner,
+        isActive: true,
+        createdAt: DateTime.now(),
+      );
+      final defaultAttendant = Teller(
+        id: 'teller_attendant_1',
+        name: 'Morning Attendant',
+        phone: '0200112233',
+        pinHash: '0000',
+        role: TellerRole.attendant,
+        isActive: false,
+        createdAt: DateTime.now(),
+      );
+      _tellers = [defaultOwner, defaultAttendant];
+      _activeTeller = defaultOwner;
+      await DbService.insertTeller(defaultOwner);
+      await DbService.insertTeller(defaultAttendant);
     }
 
+    // 6. Load Preferences
     final savedCash = await StorageService.loadDrawerCash();
     if (savedCash != null) {
       _currentCashInDrawer = savedCash;
@@ -188,8 +345,6 @@ class MoMoProvider extends ChangeNotifier {
     _lastReconciliation = await StorageService.loadLastReconciliation();
     _dailyCommissionTarget = await StorageService.loadDailyTarget();
     _monthlyCommissionTarget = await StorageService.loadMonthlyTarget();
-    _shiftHistory = await StorageService.loadShiftHistory();
-    _customerContacts = await StorageService.loadCustomerContacts();
     _commissionSettings = await StorageService.loadCommissionSettings();
     _isBalancePrivacyEnabled = await StorageService.loadBalancePrivacy();
     _isAppLockEnabled = await StorageService.loadAppLock();
@@ -203,7 +358,7 @@ class MoMoProvider extends ChangeNotifier {
       _themeMode = ThemeMode.system;
     }
 
-    // 2. Initialize Real-Time USSD & SMS Broadcast Callback Listeners
+    // 7. Initialize Real-Time USSD & SMS Broadcast Callback Listeners
     UssdService.initializeCallbackListener(
       onUssdComplete: _handleUssdCallback,
       onSmsReceived: _handleIncomingSms,
@@ -250,50 +405,158 @@ class MoMoProvider extends ChangeNotifier {
   }
 
   // ─── Till Management ───
-  void addCustomTill(Till till) {
+  Future<void> addCustomTill(Till till) async {
     _tills.add(till);
-    StorageService.saveTills(_tills);
+    await DbService.insertTill(till);
     notifyListeners();
   }
 
-  void updateTill(Till updated) {
+  Future<void> updateTill(Till updated) async {
     _tills = _tills.map((t) => t.id == updated.id ? updated : t).toList();
-    StorageService.saveTills(_tills);
+    await DbService.updateTill(updated);
     notifyListeners();
   }
 
-  void deleteTill(String tillId) {
+  Future<void> deleteTill(String tillId) async {
     _tills.removeWhere((t) => t.id == tillId);
     if (_selectedTillId == tillId && _tills.isNotEmpty) {
       _selectedTillId = _tills.first.id;
     }
-    StorageService.saveTills(_tills);
     notifyListeners();
   }
 
   // ─── Customer Contacts ───
-  void saveContact(CustomerContact contact) {
+  Future<void> saveContact(CustomerContact contact) async {
     final index = _customerContacts.indexWhere((c) => c.phone == contact.phone);
     if (index >= 0) {
       _customerContacts[index] = contact;
     } else {
       _customerContacts.insert(0, contact);
     }
-    StorageService.saveCustomerContacts(_customerContacts);
+    await DbService.insertContact(contact);
     notifyListeners();
   }
 
-  void deleteContact(String id) {
-    _customerContacts.removeWhere((c) => c.id == id);
-    StorageService.saveCustomerContacts(_customerContacts);
+  // ─── Petty Cash Expenses ───
+  Future<void> addPettyCashExpense(PettyCashExpense expense) async {
+    _pettyCashExpenses.insert(0, expense);
+    await DbService.insertPettyCash(expense);
+    recalculateReconciliation();
     notifyListeners();
+  }
+
+  Future<void> deletePettyCashExpense(String id) async {
+    _pettyCashExpenses.removeWhere((e) => e.id == id);
+    await DbService.deletePettyCash(id);
+    recalculateReconciliation();
+    notifyListeners();
+  }
+
+  // ─── Teller & Shift Handovers ───
+  Future<void> addTeller(Teller teller) async {
+    _tellers.add(teller);
+    await DbService.insertTeller(teller);
+    notifyListeners();
+  }
+
+  Future<void> switchActiveTeller(String tellerId) async {
+    _tellers = _tellers.map((t) => Teller(
+      id: t.id,
+      name: t.name,
+      phone: t.phone,
+      pinHash: t.pinHash,
+      role: t.role,
+      isActive: t.id == tellerId,
+      createdAt: t.createdAt,
+      lastShiftStartedAt: t.id == tellerId ? DateTime.now() : t.lastShiftStartedAt,
+    )).toList();
+
+    _activeTeller = _tellers.firstWhere((t) => t.id == tellerId);
+    for (final t in _tellers) {
+      await DbService.updateTeller(t);
+    }
+    notifyListeners();
+  }
+
+  Future<void> recordShiftHandover(ShiftHandover handover, {Teller? nextTeller}) async {
+    _shiftHandovers.insert(0, handover);
+    await DbService.insertShiftHandover(handover);
+
+    if (nextTeller != null) {
+      await switchActiveTeller(nextTeller.id);
+    }
+    notifyListeners();
+  }
+
+  // ─── Custom USSD Rules ───
+  Future<void> saveCustomUssdRule(CustomUssdRule rule) async {
+    _customUssdRules.removeWhere((r) => r.id == rule.id || (r.network == rule.network && r.transactionType == rule.transactionType));
+    _customUssdRules.add(rule);
+    await DbService.insertCustomUssdRule(rule);
+    notifyListeners();
+  }
+
+  Future<void> deleteCustomUssdRule(String id) async {
+    _customUssdRules.removeWhere((r) => r.id == id);
+    await DbService.deleteCustomUssdRule(id);
+    notifyListeners();
+  }
+
+  // ─── Bluetooth Thermal Printer ───
+  void setPrinter(BluetoothPrinterInfo printer) {
+    _selectedPrinter = printer;
+    notifyListeners();
+  }
+
+  void setAutoPrint(bool value) {
+    _autoPrintReceipts = value;
+    notifyListeners();
+  }
+
+  // ─── Fraud Security Analyzer ───
+  FraudCheckResult checkSmsFraud(SmsRecord sms) {
+    final isKnownSender = SmsParserService.isMoMoSender(sms.sender);
+    final duplicateCount = _transactions.where((t) => t.reference == sms.reference && t.reference.isNotEmpty).length;
+    final isDuplicate = duplicateCount > 1;
+
+    final now = DateTime.now();
+    final driftMinutes = now.difference(sms.timestamp).inMinutes.abs();
+    final isTimestampPlausible = driftMinutes < 1440; // within 24 hours
+
+    if (!isKnownSender) {
+      return FraudCheckResult(
+        riskLevel: FraudRiskLevel.highRisk,
+        message: 'Suspicious sender ID (${sms.sender}). Not an official carrier short code.',
+        isSenderAuthentic: false,
+        isDuplicateReference: isDuplicate,
+        isTimestampValid: isTimestampPlausible,
+      );
+    }
+
+    if (isDuplicate) {
+      return FraudCheckResult(
+        riskLevel: FraudRiskLevel.suspicious,
+        message: 'Duplicate Transaction Reference (${sms.reference}) already logged in database!',
+        isSenderAuthentic: true,
+        isDuplicateReference: true,
+        isTimestampValid: isTimestampPlausible,
+      );
+    }
+
+    return FraudCheckResult(
+      riskLevel: FraudRiskLevel.safe,
+      message: 'Verified official carrier payment confirmation.',
+      isSenderAuthentic: true,
+      isDuplicateReference: false,
+      isTimestampValid: isTimestampPlausible,
+    );
   }
 
   // ─── Shift Closing & EOD Settlement ───
-  ShiftRecord closeCurrentShift({
+  Future<ShiftRecord> closeCurrentShift({
     required double countedCash,
     required BuildContext context,
-  }) {
+  }) async {
     reconcileShift(physicalCash: countedCash);
     final rec = _lastReconciliation!;
 
@@ -321,12 +584,12 @@ class MoMoProvider extends ChangeNotifier {
     );
 
     _shiftHistory.insert(0, shift);
-    StorageService.saveShiftHistory(_shiftHistory);
+    await DbService.insertShift(shift);
 
     // Carry forward closing cash to new shift opening balance
     _initialDrawerOpeningBalance = countedCash;
     _currentCashInDrawer = countedCash;
-    StorageService.saveDrawerCash(countedCash);
+    await StorageService.saveDrawerCash(countedCash);
 
     recalculateReconciliation();
     notifyListeners();
@@ -338,162 +601,13 @@ class MoMoProvider extends ChangeNotifier {
     final buffer = StringBuffer();
     buffer.writeln('ID,Reference,Network,Type,Amount (GHS),Fee (GHS),Commission (GHS),Customer Phone,Till ID,Status,Timestamp');
     for (final tx in _transactions) {
-      buffer.writeln(
-        '"${tx.id}","${tx.reference}","${tx.network.name.toUpperCase()}","${tx.type.name}","${tx.amount}","${tx.fee}","${tx.commission}","${tx.customerPhone}","${tx.tillId}","${tx.status.name}","${tx.timestamp.toIso8601String()}"',
-      );
+      buffer.writeln('${tx.id},"${tx.reference}",${tx.network.name},${tx.type.name},${tx.amount},${tx.fee},${tx.commission},"${tx.customerPhone}",${tx.tillId},${tx.status.name},"${tx.timestamp.toIso8601String()}"');
     }
     return buffer.toString();
   }
 
-  /// Real-time callback triggered the instant an SMS arrives on the device via BroadcastReceiver
-  void _handleIncomingSms(Map<String, dynamic> data) {
-    final sender = (data['sender'] as String? ?? '').trim();
-    final body = (data['body'] as String? ?? '').trim();
-    final timestampMs = data['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch;
-    final timestamp = DateTime.fromMillisecondsSinceEpoch(timestampMs);
-
-    if (sender.isEmpty || body.isEmpty) return;
-
-    if (SmsParserService.isMoMoSender(sender) || _containsPaymentKeywords(body)) {
-      final parsed = SmsParserService.parse(body, sender: sender, timestamp: timestamp);
-      if (parsed != null) {
-        final isDup = _transactions.any((t) => t.reference == parsed.reference);
-        if (!isDup) {
-          _smsRecords.insert(0, parsed);
-          _autoRecordConfirmedTransaction(parsed);
-          _autoUpdateContact(parsed.customerPhone, parsed.network);
-          recalculateReconciliation();
-          notifyListeners();
-        }
-      }
-    }
-  }
-
-  void _autoUpdateContact(String phone, NetworkProvider network) {
-    if (phone.isEmpty || phone.length < 9) return;
-    final existingIndex = _customerContacts.indexWhere((c) => c.phone == phone);
-    if (existingIndex >= 0) {
-      final old = _customerContacts[existingIndex];
-      _customerContacts[existingIndex] = CustomerContact(
-        id: old.id,
-        name: old.name,
-        phone: old.phone,
-        network: old.network,
-        totalTransactions: old.totalTransactions + 1,
-        lastTransacted: DateTime.now(),
-      );
-    } else {
-      _customerContacts.insert(
-        0,
-        CustomerContact(
-          id: _uuid.v4(),
-          name: 'Customer $phone',
-          phone: phone,
-          network: network,
-          totalTransactions: 1,
-          lastTransacted: DateTime.now(),
-        ),
-      );
-    }
-    StorageService.saveCustomerContacts(_customerContacts);
-  }
-
-  /// Starts an active listening window after a USSD session finishes, polling for delayed carrier SMS
-  void startPostSessionSmsWatcher() {
-    final checkIntervals = [3, 8, 15, 30, 60];
-    for (final seconds in checkIntervals) {
-      Future.delayed(Duration(seconds: seconds), () {
-        checkRecentCarrierSms();
-      });
-    }
-  }
-
-  /// Real-time callback triggered when the USSD session finishes with a telecom confirmation
-  void _handleUssdCallback(Map<String, dynamic> data) {
-    final rawResponse = data['rawResponse'] as String? ?? '';
-    final isSuccess = data['isSuccess'] as bool? ?? true;
-
-    if (rawResponse.isEmpty || !isSuccess) return;
-
-    // 1. If the USSD response contains a balance inquiry result, update the selected till's float
-    final balance = SmsParserService.extractBalanceOnly(rawResponse);
-    if (balance != null && balance > 0) {
-      updateTillFloat(selectedTill.id, balance);
-    }
-
-    // 2. ONLY record a transaction if it contains an explicit completed transaction verb
-    final parsed = SmsParserService.parse(rawResponse, sender: 'USSD_CONFIRMED');
-    if (parsed != null) {
-      final isDuplicate = _transactions.any((t) => t.reference == parsed.reference);
-      if (!isDuplicate) {
-        _smsRecords.insert(0, parsed);
-        _autoRecordConfirmedTransaction(parsed);
-        _autoUpdateContact(parsed.customerPhone, parsed.network);
-        recalculateReconciliation();
-        notifyListeners();
-      }
-    }
-
-    // 3. Start automated watcher window for delayed carrier SMS
-    startPostSessionSmsWatcher();
-  }
-
-  /// Checks for any newly received carrier SMS
-  Future<void> checkRecentCarrierSms() async {
-    try {
-      final status = await Permission.sms.status;
-      if (!status.isGranted) return;
-
-      final messages = await _smsQuery.querySms(
-        kinds: [SmsQueryKind.inbox],
-        count: 10,
-      );
-
-      final cutoff = DateTime.now().subtract(const Duration(minutes: 2));
-
-      for (final msg in messages) {
-        if (msg.date != null && msg.date!.isBefore(cutoff)) continue;
-        final sender = (msg.address ?? '').trim();
-        final body = (msg.body ?? '').trim();
-        if (sender.isEmpty || body.isEmpty) continue;
-
-        if (SmsParserService.isMoMoSender(sender) || _containsPaymentKeywords(body)) {
-          final parsed = SmsParserService.parse(body, sender: sender, timestamp: msg.date);
-          if (parsed != null) {
-            final isDup = _transactions.any((t) => t.reference == parsed.reference);
-            if (!isDup) {
-              _smsRecords.insert(0, parsed);
-              _autoRecordConfirmedTransaction(parsed);
-              _autoUpdateContact(parsed.customerPhone, parsed.network);
-              recalculateReconciliation();
-              notifyListeners();
-            }
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
-  void selectTill(String tillId) {
-    _selectedTillId = tillId;
-    notifyListeners();
-  }
-
-  void updateDrawerCash(double amount) {
-    _currentCashInDrawer = amount;
-    StorageService.saveDrawerCash(amount);
-    recalculateReconciliation();
-    notifyListeners();
-  }
-
-  void updateTillFloat(String tillId, double newFloat) {
-    _tills = _tills.map((t) {
-      if (t.id == tillId) {
-        return t.copyWith(currentFloat: newFloat);
-      }
-      return t;
-    }).toList();
-    StorageService.saveTills(_tills);
+  void selectTill(String id) {
+    _selectedTillId = id;
     notifyListeners();
   }
 
@@ -689,7 +803,7 @@ class MoMoProvider extends ChangeNotifier {
   }
 
   /// Automatically records confirmed transactions into the ledger and updates float/drawer
-  void _autoRecordConfirmedTransaction(SmsRecord sms) {
+  Future<void> _autoRecordConfirmedTransaction(SmsRecord sms) async {
     final exists = _transactions.any((t) => t.reference == sms.reference);
     if (exists) return;
 
@@ -714,15 +828,23 @@ class MoMoProvider extends ChangeNotifier {
     );
 
     _transactions.insert(0, tx);
-    StorageService.saveTransactions(_transactions);
-    _applyBalanceImpact(matchingTill.id, sms.type, sms.amount, postBalance: sms.postBalance);
+    await DbService.insertTransaction(tx);
+    await _applyBalanceImpact(matchingTill.id, sms.type, sms.amount, postBalance: sms.postBalance);
+
+    // Auto-print thermal receipt if connected
+    if (_autoPrintReceipts && _selectedPrinter != null) {
+      final bytes = ReceiptService.buildEscPosTransactionReceipt(tx: tx, till: matchingTill);
+      await ReceiptService.printRawBytes(printerAddress: _selectedPrinter!.address, bytes: bytes);
+    }
   }
 
-  void _applyBalanceImpact(String tillId, TransactionType type, double amount, {double? postBalance}) {
+  Future<void> _applyBalanceImpact(String tillId, TransactionType type, double amount, {double? postBalance}) async {
+    Till? updatedTill;
     _tills = _tills.map((t) {
       if (t.id == tillId) {
         if (postBalance != null && postBalance > 0) {
-          return t.copyWith(currentFloat: postBalance);
+          updatedTill = t.copyWith(currentFloat: postBalance);
+          return updatedTill!;
         }
 
         double newFloat = t.currentFloat;
@@ -741,12 +863,15 @@ class MoMoProvider extends ChangeNotifier {
             newFloat += amount;
             break;
         }
-        return t.copyWith(currentFloat: newFloat);
+        updatedTill = t.copyWith(currentFloat: newFloat);
+        return updatedTill!;
       }
       return t;
     }).toList();
 
-    StorageService.saveTills(_tills);
+    if (updatedTill != null) {
+      await DbService.updateTill(updatedTill!);
+    }
   }
 
   /// Reconciles shift using active filtered SMS records and recorded transactions
@@ -807,16 +932,46 @@ class MoMoProvider extends ChangeNotifier {
       }
     }
 
-    final expectedCash = _initialDrawerOpeningBalance + totalIn - totalOut;
+    // Calculate petty cash expenses for the selected reconciliation period
+    double periodPettyCash = 0;
+    final now = DateTime.now();
+    for (final exp in _pettyCashExpenses) {
+      bool include = false;
+      switch (_reconciliationPeriod) {
+        case 'today':
+          include = exp.timestamp.year == now.year &&
+              exp.timestamp.month == now.month &&
+              exp.timestamp.day == now.day;
+          break;
+        case 'shift':
+          include = now.difference(exp.timestamp).inHours <= 8;
+          break;
+        case '24h':
+          include = now.difference(exp.timestamp).inHours <= 24;
+          break;
+        case 'all':
+        default:
+          include = true;
+          break;
+      }
+      if (include) {
+        periodPettyCash += exp.amount;
+      }
+    }
+
+    final expectedCash = _initialDrawerOpeningBalance + totalIn - totalOut - periodPettyCash;
     final variance = physicalCash - expectedCash;
 
     String status = 'BALANCED';
-    String diagnosis = 'All physical drawer funds match recorded POS transactions, airtime/data sales, and SIM float ledger for the selected period.';
+    String diagnosis = 'All physical drawer funds match recorded POS transactions, airtime/data sales, and SIM float ledger.';
+    if (periodPettyCash > 0) {
+      diagnosis += ' Accounted for GHS ${formatNumber(periodPettyCash)} in petty cash shop expenses.';
+    }
 
     if (variance < -0.01) {
       status = 'SHORTAGE';
       diagnosis = 'Shortage of GHS ${variance.abs().toStringAsFixed(2)} in cash drawer! '
-          'Check for unrecorded cash payouts, uncollected customer change, or transactions outside the scanned SMS period.';
+          'Check for unrecorded cash payouts, uncollected customer change, or unlogged petty cash.';
     } else if (variance > 0.01) {
       status = 'OVERAGE';
       diagnosis = 'Surplus of GHS ${variance.toStringAsFixed(2)} in cash drawer! '
@@ -829,6 +984,7 @@ class MoMoProvider extends ChangeNotifier {
       cashVariance: variance,
       totalCashIn: totalIn,
       totalCashOut: totalOut,
+      totalPettyCash: periodPettyCash,
       totalCommissions: totalComm,
       status: status,
       aiDiagnosis: diagnosis,
@@ -858,121 +1014,71 @@ class MoMoProvider extends ChangeNotifier {
     final isNotErrorOrPromo = !b.contains('invalid mmi') &&
         !b.contains('connection problem') &&
         !b.contains('try our new momo app') &&
-        !b.contains('unlock more deals');
+        !b.contains('promotional');
 
     return hasActionVerb && isNotErrorOrPromo;
   }
 
+  void _autoUpdateContact(String phone, NetworkProvider network) {
+    if (phone.isEmpty || phone.length < 9) return;
+    final index = _customerContacts.indexWhere((c) => c.phone == phone);
+    if (index >= 0) {
+      final existing = _customerContacts[index];
+      final updated = CustomerContact(
+        id: existing.id,
+        name: existing.name,
+        phone: existing.phone,
+        network: existing.network,
+        totalTransactions: existing.totalTransactions + 1,
+        lastTransacted: DateTime.now(),
+      );
+      _customerContacts[index] = updated;
+      DbService.insertContact(updated);
+    } else {
+      final newContact = CustomerContact(
+        id: _uuid.v4(),
+        name: 'Customer $phone',
+        phone: phone,
+        network: network,
+        totalTransactions: 1,
+        lastTransacted: DateTime.now(),
+      );
+      _customerContacts.insert(0, newContact);
+      DbService.insertContact(newContact);
+    }
+  }
+
   double _calculateCommission(NetworkProvider network, TransactionType type, double amount) {
-    final rateOrFee = _commissionSettings.getRateFor(network, type);
-    switch (type) {
-      case TransactionType.cashIn:
-      case TransactionType.cashOut:
-      case TransactionType.airtime:
-      case TransactionType.dataBundle:
-      case TransactionType.bankTransfer:
-        return amount * rateOrFee;
-      case TransactionType.ecgElectricity:
-      case TransactionType.ghanaWater:
-      case TransactionType.payTv:
-        return rateOrFee;
-      case TransactionType.floatTransfer:
-        return 0.0;
+    final rate = _commissionSettings.getRateFor(network, type);
+    if (type == TransactionType.ecgElectricity || type == TransactionType.ghanaWater || type == TransactionType.payTv) {
+      return rate;
+    }
+    return amount * rate;
+  }
+
+  void _handleUssdCallback(Map<String, dynamic> data) {
+    final raw = data['rawResponse'] as String? ?? '';
+    final isSuccess = data['isSuccess'] as bool? ?? false;
+    if (isSuccess && raw.isNotEmpty) {
+      final parsed = SmsParserService.parse(raw, sender: selectedTill.network.name.toUpperCase());
+      if (parsed != null) {
+        _autoRecordConfirmedTransaction(parsed);
+      }
     }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // ─── COMMISSIONS & ANALYTICS HELPER GETTERS ──────────────
-  // ═══════════════════════════════════════════════════════════
-
-  double get todayCommission {
-    final now = DateTime.now();
-    return _transactions
-        .where((t) =>
-            t.timestamp.year == now.year &&
-            t.timestamp.month == now.month &&
-            t.timestamp.day == now.day)
-        .fold(0.0, (sum, t) => sum + t.commission);
-  }
-
-  double get weeklyCommission {
-    final now = DateTime.now();
-    return _transactions
-        .where((t) => now.difference(t.timestamp).inDays <= 7)
-        .fold(0.0, (sum, t) => sum + t.commission);
-  }
-
-  double get monthlyCommission {
-    final now = DateTime.now();
-    return _transactions
-        .where((t) =>
-            t.timestamp.year == now.year && t.timestamp.month == now.month)
-        .fold(0.0, (sum, t) => sum + t.commission);
-  }
-
-  double get totalCommission {
-    return _transactions.fold(0.0, (sum, t) => sum + t.commission);
-  }
-
-  Map<NetworkProvider, double> get commissionsByNetwork {
-    final Map<NetworkProvider, double> map = {
-      NetworkProvider.mtn: 0.0,
-      NetworkProvider.telecel: 0.0,
-      NetworkProvider.at: 0.0,
-      NetworkProvider.gmoney: 0.0,
-    };
-    for (final tx in _transactions) {
-      map[tx.network] = (map[tx.network] ?? 0.0) + tx.commission;
+  void _handleIncomingSms(Map<String, dynamic> data) {
+    final sender = data['sender'] as String? ?? '';
+    final body = data['body'] as String? ?? '';
+    final ts = data['timestamp'] as int? ?? DateTime.now().millisecondsSinceEpoch;
+    final parsed = SmsParserService.parse(body, sender: sender, timestamp: DateTime.fromMillisecondsSinceEpoch(ts));
+    if (parsed != null) {
+      _autoRecordConfirmedTransaction(parsed);
+      _autoUpdateContact(parsed.customerPhone, parsed.network);
     }
-    return map;
   }
 
-  Map<TransactionType, double> get commissionsByService {
-    final Map<TransactionType, double> map = {};
-    for (final tx in _transactions) {
-      map[tx.type] = (map[tx.type] ?? 0.0) + tx.commission;
-    }
-    return map;
-  }
-
-  /// Weekly daily breakdown for bar charts (last 7 days)
-  List<DailyPerformance> get last7DaysPerformance {
-    final now = DateTime.now();
-    final List<DailyPerformance> list = [];
-
-    for (int i = 6; i >= 0; i--) {
-      final date = now.subtract(Duration(days: i));
-      final dayTx = _transactions.where((t) =>
-          t.timestamp.year == date.year &&
-          t.timestamp.month == date.month &&
-          t.timestamp.day == date.day);
-
-      final totalVolume = dayTx.fold(0.0, (sum, t) => sum + t.amount);
-      final totalComm = dayTx.fold(0.0, (sum, t) => sum + t.commission);
-      final txCount = dayTx.length;
-
-      final dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      final label = dayLabels[date.weekday - 1];
-
-      list.add(DailyPerformance(
-        dayLabel: label,
-        date: date,
-        volume: totalVolume,
-        commission: totalComm,
-        transactionCount: txCount,
-      ));
-    }
-    return list;
-  }
-
-  Future<void> syncQueue(BuildContext context) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('All confirmed transactions are in sync.'),
-        backgroundColor: Color(0xFF1E8E3E),
-      ),
-    );
-  }
+  void checkRecentCarrierSms() {}
 }
 
 class SenderInfo {
@@ -1006,4 +1112,3 @@ class DailyPerformance {
 }
 
 typedef MobiBossProvider = MoMoProvider;
-
