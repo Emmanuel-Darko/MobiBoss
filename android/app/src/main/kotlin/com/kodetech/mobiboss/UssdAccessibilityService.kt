@@ -1,4 +1,4 @@
-package com.kodetech.momo.momo_pos_reconcile
+package com.kodetech.mobiboss
 
 import android.accessibilityservice.AccessibilityService
 import android.content.ClipData

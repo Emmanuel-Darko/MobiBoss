@@ -1,4 +1,4 @@
-package com.kodetech.momo.momo_pos_reconcile
+package com.kodetech.mobiboss
 
 import android.content.Context
 import android.content.Intent
@@ -11,7 +11,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
-    private val CHANNEL = "com.kodetech.momo/ussd"
+    private val CHANNEL = "com.kodetech.mobiboss/ussd"
     private var methodChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {

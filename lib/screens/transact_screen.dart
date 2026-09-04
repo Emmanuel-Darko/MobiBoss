@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/momo_provider.dart';
-import '../models/momo_models.dart';
+import '../providers/mobiboss_provider.dart';
+import '../models/mobiboss_models.dart';
 import '../services/ussd_service.dart';
 import '../widgets/top_toast.dart';
 import '../services/phone_helper.dart';

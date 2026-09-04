@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../models/momo_models.dart';
-import '../providers/momo_provider.dart';
+import '../models/mobiboss_models.dart';
+import '../providers/mobiboss_provider.dart';
 import '../services/receipt_service.dart';
 
 class ReconciliationScreen extends StatefulWidget {

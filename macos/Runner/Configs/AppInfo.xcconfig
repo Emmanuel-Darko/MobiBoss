@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = momo_pos_reconcile
+PRODUCT_NAME = mobiboss
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.kodetech.momo.momoPosReconcile
+PRODUCT_BUNDLE_IDENTIFIER = com.kodetech.mobiboss
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.kodetech.momo. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 com.kodetech. All rights reserved.

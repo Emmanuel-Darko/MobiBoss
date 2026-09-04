@@ -1,4 +1,4 @@
-name: momo_pos_reconcile
+name: mobiboss
 description: A clean Google-style Mobile Money POS & SMS reconciliation Flutter application.
 version: 1.0.0+1
 publish_to: 'none'

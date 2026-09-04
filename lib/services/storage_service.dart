@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/momo_models.dart';
+import '../models/mobiboss_models.dart';
 
 class StorageService {
   static const String _keyTransactions = 'momo_transactions';

@@ -1,5 +1,5 @@
 import 'package:uuid/uuid.dart';
-import '../models/momo_models.dart';
+import '../models/mobiboss_models.dart';
 
 class SmsParserService {
   static const _uuid = Uuid();

@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/momo_models.dart';
+import '../models/mobiboss_models.dart';
 
 class MultiStepUssdPlan {
   final String rootCode;
@@ -16,7 +16,7 @@ class MultiStepUssdPlan {
 }
 
 class UssdService {
-  static const MethodChannel _channel = MethodChannel('com.kodetech.momo/ussd');
+  static const MethodChannel _channel = MethodChannel('com.kodetech.mobiboss/ussd');
   static Function(Map<String, dynamic> data)? _onTransactionCompleteCallback;
   static Function(Map<String, dynamic> data)? _onSmsReceivedCallback;
 

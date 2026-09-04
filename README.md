@@ -1,4 +1,4 @@
-# MomoBoss
+# MobiBoss
 
 > **The Premier POS & Reconciliation Operating System for Mobile Money Agents in Africa.**
 
@@ -10,7 +10,7 @@
 
 ## Overview
 
-**MomoBoss** is an all-in-one mobile money agent point-of-sale (POS), universal USSD automation, and real-time ledger reconciliation application. Designed specifically for Ghana's multi-carrier telecom ecosystem (MTN MoMo, Telecel Cash, AT Money, and G-Money), it eliminates paper record-keeping, prevents drawer cash shortages, and automates tedious USSD dialing.
+**MobiBoss** is an all-in-one mobile money agent point-of-sale (POS), universal USSD automation, and real-time ledger reconciliation application. Designed specifically for Ghana's multi-carrier telecom ecosystem (MTN MoMo, Telecel Cash, AT Money, and G-Money), it eliminates paper record-keeping, prevents drawer cash shortages, and automates tedious USSD dialing.
 
 ---
 
@@ -18,7 +18,7 @@
 
 ```mermaid
 graph TD
-    A["MomoBoss Mobile Hub"] --> B["1. Transact & Value-Added Services"]
+    A["MobiBoss Mobile Hub"] --> B["1. Transact & Value-Added Services"]
     A --> C["2. Live 3-Way Reconciliation"]
     A --> D["3. Real-Time Earnings & Commission Sweeps"]
     A --> E["4. Multi-SIM Floats & Transaction Ledger"]
@@ -86,9 +86,9 @@ graph TD
 lib/
 ├── main.dart                      # App Shell, 4-Tab Navigation & Lifecycle
 ├── models/
-│   └── momo_models.dart           # Data models (Till, Transaction, Shift, Contact, Rules)
+│   └── mobiboss_models.dart       # Data models (Till, Transaction, Shift, Contact, Rules)
 ├── providers/
-│   └── momo_provider.dart         # Central State Manager & Reconciliation Engine
+│   └── mobiboss_provider.dart     # Central State Manager & Reconciliation Engine
 ├── services/
 │   ├── ussd_service.dart          # MethodChannel bridge for USSD dialing & SIM routing
 │   ├── sms_parser_service.dart    # Strict telecom message regex parser
@@ -121,14 +121,14 @@ lib/
 ### Setup Instructions
 ```bash
 # 1. Clone the repository
-git clone https://github.com/kodetech/momoboss.git
-cd momoboss
+git clone https://github.com/kodetech/mobiboss.git
+cd mobiboss
 
 # 2. Install dependencies
 flutter pub get
 
 # 3. Enable Accessibility Service on Device
-# Settings -> Accessibility -> Installed Services -> MomoBoss -> Enable
+# Settings -> Accessibility -> Installed Services -> MobiBoss -> Enable
 
 # 4. Run on connected device
 flutter run -d <device-id>

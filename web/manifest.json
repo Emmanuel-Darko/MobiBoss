@@ -1,6 +1,6 @@
 {
-    "name": "momo_pos_reconcile",
-    "short_name": "momo_pos_reconcile",
+    "name": "MobiBoss",
+    "short_name": "MobiBoss",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

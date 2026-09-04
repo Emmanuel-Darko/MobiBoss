@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'providers/momo_provider.dart';
+import 'providers/mobiboss_provider.dart';
 import 'screens/transact_screen.dart';
 import 'screens/commissions_screen.dart';
 import 'screens/reconciliation_screen.dart';
@@ -16,15 +16,15 @@ void main() {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => MoMoProvider()..init()),
+        ChangeNotifierProvider(create: (_) => MobiBossProvider()..init()),
       ],
-      child: const MoMoApp(),
+      child: const MobiBossApp(),
     ),
   );
 }
 
-class MoMoApp extends StatelessWidget {
-  const MoMoApp({super.key});
+class MobiBossApp extends StatelessWidget {
+  const MobiBossApp({super.key});
 
   @override
   Widget build(BuildContext context) {

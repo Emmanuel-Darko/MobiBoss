@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import '../models/momo_models.dart';
+import '../models/mobiboss_models.dart';
 
 class ReceiptService {
   static final _currencyFormatter = NumberFormat('#,##0.00', 'en_US');

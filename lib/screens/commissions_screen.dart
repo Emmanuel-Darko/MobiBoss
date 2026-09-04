@@ -1,8 +1,8 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/momo_models.dart';
-import '../providers/momo_provider.dart';
+import '../models/mobiboss_models.dart';
+import '../providers/mobiboss_provider.dart';
 import '../services/ussd_service.dart';
 import '../widgets/top_toast.dart';
 

@@ -1,7 +1,7 @@
 import re
 import os
 
-with open("momo_flutter_codebase_bundle.dart", "r") as f:
+with open("mobiboss_flutter_codebase_bundle.dart", "r") as f:
     content = f.read()
 
 # Pattern to match:

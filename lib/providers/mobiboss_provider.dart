@@ -3,7 +3,7 @@ import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
-import '../models/momo_models.dart';
+import '../models/mobiboss_models.dart';
 import '../services/sms_parser_service.dart';
 import '../services/storage_service.dart';
 import '../services/ussd_service.dart';
@@ -1004,3 +1004,6 @@ class DailyPerformance {
     required this.transactionCount,
   });
 }
+
+typedef MobiBossProvider = MoMoProvider;
+

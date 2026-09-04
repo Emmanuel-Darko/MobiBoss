@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.kodetech.momo" "\0"
-            VALUE "FileDescription", "momo_pos_reconcile" "\0"
+            VALUE "CompanyName", "com.kodetech" "\0"
+            VALUE "FileDescription", "MobiBoss" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "momo_pos_reconcile" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.kodetech.momo. All rights reserved." "\0"
-            VALUE "OriginalFilename", "momo_pos_reconcile.exe" "\0"
-            VALUE "ProductName", "momo_pos_reconcile" "\0"
+            VALUE "InternalName", "mobiboss" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.kodetech. All rights reserved." "\0"
+            VALUE "OriginalFilename", "mobiboss.exe" "\0"
+            VALUE "ProductName", "MobiBoss" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -8,17 +8,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:momo_pos_reconcile/main.dart';
-import 'package:momo_pos_reconcile/providers/momo_provider.dart';
+import 'package:mobiboss/main.dart';
+import 'package:mobiboss/providers/mobiboss_provider.dart';
 
 void main() {
-  testWidgets('MoMoApp smoke test', (WidgetTester tester) async {
+  testWidgets('MobiBossApp smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider(create: (_) => MoMoProvider()..init()),
+          ChangeNotifierProvider(create: (_) => MobiBossProvider()..init()),
         ],
-        child: const MoMoApp(),
+        child: const MobiBossApp(),
       ),
     );
     expect(find.byType(MaterialApp), findsOneWidget);
