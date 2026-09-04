@@ -82,39 +82,62 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
 
           // Accessibility Service Enablement Banner
           if (!provider.isAccessibilityEnabled) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 14),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEF7E0),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFF9AB00)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.bolt_rounded, color: Color(0xFFE37400), size: 24),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Enable Auto-USSD Automation',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                        Text(
-                          'Auto-navigates multi-step menus up to PIN entry and captures callbacks.',
-                          style: TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
-                        ),
-                      ],
+            Builder(
+              builder: (ctx) {
+                final isDark = Theme.of(ctx).brightness == Brightness.dark;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF332600) : const Color(0xFFFEF7E0),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark ? const Color(0xFF7A5900) : const Color(0xFFF9AB00),
                     ),
                   ),
-                  TextButton(
-                    onPressed: () => UssdService.openAccessibilitySettings(),
-                    child: const Text('Enable', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.bolt_rounded,
+                        color: isDark ? const Color(0xFFFFB74D) : const Color(0xFFE37400),
+                        size: 24,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Enable Auto-USSD Automation',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: isDark ? const Color(0xFFFFD54F) : const Color(0xFF202124),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Auto-navigates multi-step menus up to PIN entry and captures callbacks.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: isDark ? const Color(0xFFFFD54F) : const Color(0xFF1A73E8),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                        onPressed: () => UssdService.openAccessibilitySettings(),
+                        child: const Text('Enable', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ],
 
