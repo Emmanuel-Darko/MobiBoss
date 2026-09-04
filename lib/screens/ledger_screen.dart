@@ -151,7 +151,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
         children: [
           // Top Metrics Bar
           Container(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
@@ -184,7 +184,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
               ],
             ),
           ),
-          const Divider(height: 1, color: Color(0xFFE8EAED)),
+          Divider(height: 1, color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
 
           // Search & Filter Row
           Padding(
@@ -199,11 +199,11 @@ class _LedgerScreenState extends State<LedgerScreen> {
                     prefixIcon: const Icon(Icons.search_rounded, size: 20),
                     isDense: true,
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: Theme.of(context).cardColor,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFFE8EAED)),
+                      borderSide: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                     ),
                   ),
                 ),
@@ -257,9 +257,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
                         margin: const EdgeInsets.only(bottom: 8),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
-                          side: const BorderSide(color: Color(0xFFE8EAED)),
+                          side: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                         ),
-                        color: Colors.white,
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: () => _showReceiptModal(context, tx, matchingTill),

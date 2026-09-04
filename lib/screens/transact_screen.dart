@@ -222,7 +222,7 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
               ),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: Theme.of(context).cardColor,
             ),
           ),
           if (_phoneController.text.trim().length >= 2) ...[
@@ -286,7 +286,7 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
               prefixText: 'GHS ',
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: Theme.of(context).cardColor,
             ),
           ),
           const SizedBox(height: 10),

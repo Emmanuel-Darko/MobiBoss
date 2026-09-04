@@ -22,6 +22,7 @@ class MoMoProvider extends ChangeNotifier {
 
   bool _isBalancePrivacyEnabled = false;
   bool _isAppLockEnabled = false;
+  ThemeMode _themeMode = ThemeMode.system;
 
   CommissionSettings _commissionSettings = CommissionSettings();
 
@@ -53,6 +54,7 @@ class MoMoProvider extends ChangeNotifier {
   bool get isAccessibilityEnabled => _isAccessibilityEnabled;
   bool get isBalancePrivacyEnabled => _isBalancePrivacyEnabled;
   bool get isAppLockEnabled => _isAppLockEnabled;
+  ThemeMode get themeMode => _themeMode;
   String get reconciliationPeriod => _reconciliationPeriod;
   double get dailyCommissionTarget => _dailyCommissionTarget;
   double get monthlyCommissionTarget => _monthlyCommissionTarget;
@@ -185,6 +187,15 @@ class MoMoProvider extends ChangeNotifier {
     _isBalancePrivacyEnabled = await StorageService.loadBalancePrivacy();
     _isAppLockEnabled = await StorageService.loadAppLock();
 
+    final savedTheme = await StorageService.loadThemeMode();
+    if (savedTheme == 'light') {
+      _themeMode = ThemeMode.light;
+    } else if (savedTheme == 'dark') {
+      _themeMode = ThemeMode.dark;
+    } else {
+      _themeMode = ThemeMode.system;
+    }
+
     // 2. Initialize Real-Time USSD & SMS Broadcast Callback Listeners
     UssdService.initializeCallbackListener(
       onUssdComplete: _handleUssdCallback,
@@ -198,6 +209,14 @@ class MoMoProvider extends ChangeNotifier {
 
   Future<void> checkAccessibilityState() async {
     _isAccessibilityEnabled = await UssdService.isAccessibilityEnabled();
+    notifyListeners();
+  }
+
+  // ─── Theme Mode ───
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
+    final modeStr = mode == ThemeMode.light ? 'light' : mode == ThemeMode.dark ? 'dark' : 'system';
+    StorageService.saveThemeMode(modeStr);
     notifyListeners();
   }
 

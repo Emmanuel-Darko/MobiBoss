@@ -111,11 +111,10 @@ class TillsScreen extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                     side: BorderSide(
-                      color: isSelected ? const Color(0xFF1A73E8) : const Color(0xFFE8EAED),
+                      color: isSelected ? const Color(0xFF1A73E8) : (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                       width: isSelected ? 1.8 : 1.0,
                     ),
                   ),
-                  color: Colors.white,
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Column(

@@ -28,11 +28,15 @@ class MoMoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<MoMoProvider>();
+
     return MaterialApp(
       title: 'MomoBoss',
       debugShowCheckedModeBanner: false,
+      themeMode: provider.themeMode,
       theme: ThemeData(
         useMaterial3: true,
+        brightness: Brightness.light,
         scaffoldBackgroundColor: const Color(0xFFF8F9FA),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF1A73E8),
@@ -56,6 +60,56 @@ class MoMoApp extends StatelessWidget {
             side: const BorderSide(color: Color(0xFFE8EAED), width: 1),
           ),
           color: Colors.white,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: Colors.white,
+          indicatorColor: const Color(0xFFD2E3FC),
+          labelTextStyle: WidgetStateProperty.resolveWith(
+            (states) => TextStyle(
+              fontSize: 12,
+              fontWeight: states.contains(WidgetState.selected) ? FontWeight.bold : FontWeight.w500,
+              color: states.contains(WidgetState.selected) ? const Color(0xFF1A73E8) : const Color(0xFF5F6368),
+            ),
+          ),
+        ),
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1A73E8),
+          brightness: Brightness.dark,
+          primary: const Color(0xFF8AB4F8),
+          surface: const Color(0xFF1E1E1E),
+        ),
+        textTheme: GoogleFonts.plusJakartaSansTextTheme(
+          ThemeData.dark().textTheme,
+        ),
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          elevation: 0,
+          backgroundColor: Color(0xFF1E1E1E),
+          foregroundColor: Color(0xFFE8EAED),
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF2D2F31), width: 1),
+          ),
+          color: const Color(0xFF1E1E1E),
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: const Color(0xFF1E1E1E),
+          indicatorColor: const Color(0xFF0D47A1),
+          labelTextStyle: WidgetStateProperty.resolveWith(
+            (states) => TextStyle(
+              fontSize: 12,
+              fontWeight: states.contains(WidgetState.selected) ? FontWeight.bold : FontWeight.w500,
+              color: states.contains(WidgetState.selected) ? const Color(0xFF8AB4F8) : const Color(0xFF9AA0A6),
+            ),
+          ),
         ),
       ),
       home: const MainNavigationShell(),
@@ -253,12 +307,14 @@ class TillsAndLedgerScreen extends StatelessWidget {
       child: Column(
         children: [
           Container(
-            color: Colors.white,
-            child: const TabBar(
-              labelColor: Color(0xFF1A73E8),
-              unselectedLabelColor: Color(0xFF5F6368),
-              indicatorColor: Color(0xFF1A73E8),
-              tabs: [
+            color: Theme.of(context).cardColor,
+            child: TabBar(
+              labelColor: Theme.of(context).colorScheme.primary,
+              unselectedLabelColor: Theme.of(context).brightness == Brightness.dark
+                  ? const Color(0xFF9AA0A6)
+                  : const Color(0xFF5F6368),
+              indicatorColor: Theme.of(context).colorScheme.primary,
+              tabs: const [
                 Tab(icon: Icon(Icons.sim_card_rounded, size: 18), text: 'SIM Till Floats'),
                 Tab(icon: Icon(Icons.receipt_long_rounded, size: 18), text: 'Transaction Ledger'),
               ],

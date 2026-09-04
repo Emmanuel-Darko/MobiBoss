@@ -28,8 +28,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ─── 1. Security & Privacy Card ───
-          const Text('Security & Privacy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF5F6368))),
+          // ─── 1. Appearance & Theme ───
+          Text('Appearance & Theme', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('App Theme Mode', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text('Choose between light, dark, or system default', style: TextStyle(fontSize: 11, color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: SegmentedButton<ThemeMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          icon: Icon(Icons.light_mode_rounded, size: 16),
+                          label: Text('Light', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.dark,
+                          icon: Icon(Icons.dark_mode_rounded, size: 16),
+                          label: Text('Dark', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.system,
+                          icon: Icon(Icons.brightness_auto_rounded, size: 16),
+                          label: Text('System', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                      selected: {provider.themeMode},
+                      onSelectionChanged: (set) => provider.setThemeMode(set.first),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // ─── 2. Security & Privacy Card ───
+          Text('Security & Privacy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
           const SizedBox(height: 8),
           Card(
             child: Column(

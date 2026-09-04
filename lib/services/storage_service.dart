@@ -14,11 +14,23 @@ class StorageService {
   static const String _keyCommissionSettings = 'momo_commission_settings';
   static const String _keyBalancePrivacy = 'momo_balance_privacy';
   static const String _keyAppLock = 'momo_app_lock';
+  static const String _keyThemeMode = 'momo_theme_mode';
 
   static SharedPreferences? _prefs;
 
   static Future<void> init() async {
     _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  // ─── Theme Mode (light, dark, system) ───
+  static Future<void> saveThemeMode(String mode) async {
+    await init();
+    await _prefs?.setString(_keyThemeMode, mode);
+  }
+
+  static Future<String> loadThemeMode() async {
+    await init();
+    return _prefs?.getString(_keyThemeMode) ?? 'system';
   }
 
   // ─── Transactions ───

@@ -1,0 +1,833 @@
+// ==========================================
+// FILE: pubspec.yaml
+// ==========================================
+
+name: momo_pos_reconcile
+description: A clean Google-style Mobile Money POS & SMS reconciliation Flutter application.
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: ^6.1.0
+  provider: ^6.1.1
+  intl: ^0.19.0
+  url_launcher: ^6.3.0
+  flutter_sms_inbox: ^1.0.3
+  permission_handler: ^11.3.1
+  local_auth: ^2.2.0
+  shared_preferences: ^2.2.2
+  uuid: ^4.3.3
+  pdf: ^3.10.8
+  printing: ^5.12.0
+  fl_chart: ^0.68.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+
+
+
+// ==========================================
+// FILE: lib/main.dart
+// ==========================================
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+import 'providers/momo_provider.dart';
+import 'screens/transact_screen.dart';
+import 'screens/reconciliation_screen.dart';
+import 'screens/tills_screen.dart';
+import 'screens/ledger_screen.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => MoMoProvider()..init()),
+      ],
+      child: const MoMoApp(),
+    ),
+  );
+}
+
+class MoMoApp extends StatelessWidget {
+  const MoMoApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'MoMo POS & Reconcile',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1A73E8), // Google Blue
+          brightness: Brightness.light,
+          primary: const Color(0xFF1A73E8),
+          surface: Colors.white,
+          background: const Color(0xFFF8F9FA),
+        ),
+        textTheme: GoogleFonts.plusJakartaSansTextTheme(
+          Theme.of(context).textTheme,
+        ),
+        appBarTheme: const AppBarTheme(
+          centerTitle: false,
+          elevation: 0,
+          backgroundColor: Colors.white,
+          foregroundColor: Color(0xFF202124),
+        ),
+        cardTheme: CardTheme(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFFE8EAED), width: 1),
+          ),
+          color: Colors.white,
+        ),
+      ),
+      home: const MainNavigationShell(),
+    );
+  }
+}
+
+class MainNavigationShell extends StatefulWidget {
+  const MainNavigationShell({super.key});
+
+  @override
+  State<MainNavigationShell> createState() => _MainNavigationShellState();
+}
+
+class _MainNavigationShellState extends State<MainNavigationShell> {
+  int _currentIndex = 0;
+
+  final List<Widget> _screens = const [
+    TransactScreen(),
+    ReconciliationScreen(),
+    TillsScreen(),
+    LedgerScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<MoMoProvider>();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F0FE),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.flash_on_rounded, color: Color(0xFF1A73E8), size: 20),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'MoMo Reconcile',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                Text(
+                  'Drawer: GHS ${provider.currentCashInDrawer.toStringAsFixed(2)}',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.sync_rounded),
+            tooltip: 'Sync Offline Queue',
+            onPressed: () => provider.syncQueue(context),
+          ),
+        ],
+      ),
+      body: _screens[_currentIndex],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        indicatorColor: const Color(0xFFD2E3FC),
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.send_rounded),
+            selectedIcon: Icon(Icons.send_rounded, color: Color(0xFF1A73E8)),
+            label: 'Transact',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.fact_check_outlined),
+            selectedIcon: Icon(Icons.fact_check_rounded, color: Color(0xFF1A73E8)),
+            label: 'Reconcile',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.account_balance_wallet_outlined),
+            selectedIcon: Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF1A73E8)),
+            label: 'SIM Tills',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long_rounded, color: Color(0xFF1A73E8)),
+            label: 'Ledger',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+
+// ==========================================
+// FILE: lib/models/momo_models.dart
+// ==========================================
+
+enum NetworkProvider { mtn, telecel, at, gmoney }
+enum TransactionType { cashIn, cashOut, airtime, floatTransfer }
+enum TransactionStatus { completed, pending, failed, offlineQueued }
+
+class Till {
+  final String id;
+  final NetworkProvider network;
+  final String tillName;
+  final String tillNumber;
+  final String simSlot;
+  final double currentFloat;
+  final double minFloatAlert;
+  final String ussdPrefix;
+  final String agentCode;
+
+  Till({
+    required this.id,
+    required this.network,
+    required this.tillName,
+    required this.tillNumber,
+    required this.simSlot,
+    required this.currentFloat,
+    required this.minFloatAlert,
+    required this.ussdPrefix,
+    required this.agentCode,
+  });
+
+  Till copyWith({double? currentFloat}) {
+    return Till(
+      id: id,
+      network: network,
+      tillName: tillName,
+      tillNumber: tillNumber,
+      simSlot: simSlot,
+      currentFloat: currentFloat ?? this.currentFloat,
+      minFloatAlert: minFloatAlert,
+      ussdPrefix: ussdPrefix,
+      agentCode: agentCode,
+    );
+  }
+}
+
+class TransactionRecord {
+  final String id;
+  final String tillId;
+  final NetworkProvider network;
+  final TransactionType type;
+  final double amount;
+  final double fee;
+  final double commission;
+  final String customerPhone;
+  final String reference;
+  final String ussdString;
+  final DateTime timestamp;
+  final TransactionStatus status;
+
+  TransactionRecord({
+    required this.id,
+    required this.tillId,
+    required this.network,
+    required this.type,
+    required this.amount,
+    required this.fee,
+    required this.commission,
+    required this.customerPhone,
+    required this.reference,
+    required this.ussdString,
+    required this.timestamp,
+    required this.status,
+  });
+}
+
+class SmsRecord {
+  final String id;
+  final String sender;
+  final String rawText;
+  final NetworkProvider network;
+  final TransactionType type;
+  final double amount;
+  final double fee;
+  final String reference;
+  final double? postBalance;
+  final DateTime timestamp;
+
+  SmsRecord({
+    required this.id,
+    required this.sender,
+    required this.rawText,
+    required this.network,
+    required this.type,
+    required this.amount,
+    required this.fee,
+    required this.reference,
+    this.postBalance,
+    required this.timestamp,
+  });
+}
+
+class ReconciliationResult {
+  final double physicalCashCount;
+  final double expectedPhysicalCash;
+  final double cashVariance;
+  final double totalCashIn;
+  final double totalCashOut;
+  final double totalCommissions;
+  final String status; // BALANCED, SHORTAGE, OVERAGE
+  final String aiDiagnosis;
+
+  ReconciliationResult({
+    required this.physicalCashCount,
+    required this.expectedPhysicalCash,
+    required this.cashVariance,
+    required this.totalCashIn,
+    required this.totalCashOut,
+    required this.totalCommissions,
+    required this.status,
+    required this.aiDiagnosis,
+  });
+}
+
+
+
+// ==========================================
+// FILE: lib/services/ussd_service.dart
+// ==========================================
+
+import 'package:url_launcher/url_launcher.dart';
+import '../models/momo_models.dart';
+
+class UssdService {
+  /// Compiles a standard Ghana Telecom USSD String (MTN *171#, Telecel *110#, AT *110#)
+  static String buildUssdString({
+    required Till till,
+    required TransactionType type,
+    required String customerPhone,
+    required double amount,
+  }) {
+    final amtFormatted = amount.toStringAsFixed(0);
+
+    switch (till.network) {
+      case NetworkProvider.mtn:
+        if (type == TransactionType.cashIn) {
+          // MTN Deposit format: *171*1*1*phone*phone*amount#
+          return '*171*1*1*$customerPhone*$customerPhone*$amtFormatted#';
+        } else if (type == TransactionType.cashOut) {
+          // MTN Cash Out authorization: *171*1*2*phone*amount#
+          return '*171*1*2*$customerPhone*$amtFormatted#';
+        } else {
+          return '*171*3*1*$customerPhone*$amtFormatted#';
+        }
+
+      case NetworkProvider.telecel:
+        if (type == TransactionType.cashIn) {
+          return '*110*1*1*$customerPhone*$amtFormatted#';
+        } else if (type == TransactionType.cashOut) {
+          return '*110*2*$customerPhone*$amtFormatted#';
+        } else {
+          return '*110*3*$customerPhone*$amtFormatted#';
+        }
+
+      case NetworkProvider.at:
+        return '*110*1*$customerPhone*$amtFormatted#';
+
+      case NetworkProvider.gmoney:
+        return '*422*1*$customerPhone*$amtFormatted#';
+    }
+  }
+
+  /// Directly launches the device phone dialer with pre-filled USSD string
+  static Future<bool> dialUssd(String ussdCode) async {
+    // URL-encode '#' symbol as '%23' so Android/iOS dialer does not strip it
+    final encodedCode = ussdCode.replaceAll('#', '%23');
+    final Uri uri = Uri.parse('tel:$encodedCode');
+
+    if (await canLaunchUrl(uri)) {
+      return await launchUrl(uri);
+    } else {
+      return false;
+    }
+  }
+}
+
+
+
+// ==========================================
+// FILE: lib/screens/transact_screen.dart
+// ==========================================
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/momo_provider.dart';
+import '../models/momo_models.dart';
+import '../services/ussd_service.dart';
+
+class TransactScreen extends StatefulWidget {
+  const TransactScreen({super.key});
+
+  @override
+  State<TransactScreen> createState() => _TransactScreenState();
+}
+
+class _TransactScreenState extends State<TransactScreen> {
+  TransactionType _selectedType = TransactionType.cashIn;
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _amountController = TextEditingController();
+
+  final List<double> _quickAmounts = [50, 100, 200, 500, 1000];
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<MoMoProvider>();
+    final activeTill = provider.selectedTill;
+    final amount = double.tryParse(_amountController.text) ?? 0.0;
+
+    final ussdString = UssdService.buildUssdString(
+      till: activeTill,
+      type: _selectedType,
+      customerPhone: _phoneController.text.isEmpty ? '024XXXXXXX' : _phoneController.text,
+      amount: amount,
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Till Selector Card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: activeTill.network == NetworkProvider.mtn
+                          ? const Color(0xFFFFF4CC)
+                          : const Color(0xFFFFEBEE),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.sim_card_rounded,
+                      color: activeTill.network == NetworkProvider.mtn
+                          ? const Color(0xFFF9AB00)
+                          : Colors.red,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          activeTill.tillName,
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                        ),
+                        Text(
+                          'Float: GHS ${activeTill.currentFloat.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF1E8E3E), fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DropdownButton<String>(
+                    value: activeTill.id,
+                    underline: const SizedBox(),
+                    items: provider.tills.map((t) {
+                      return DropdownMenuItem(
+                        value: t.id,
+                        child: Text(t.network.name.toUpperCase()),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) provider.selectTill(val);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 2. Transaction Type Segmented Pills
+          SegmentedButton<TransactionType>(
+            segments: const [
+              ButtonSegment(
+                value: TransactionType.cashIn,
+                label: Text('Cash In (Deposit)'),
+                icon: Icon(Icons.arrow_downward_rounded),
+              ),
+              ButtonSegment(
+                value: TransactionType.cashOut,
+                label: Text('Cash Out (Withdraw)'),
+                icon: Icon(Icons.arrow_upward_rounded),
+              ),
+            ],
+            selected: {_selectedType},
+            onSelectionChanged: (set) => setState(() => _selectedType = set.first),
+          ),
+          const SizedBox(height: 16),
+
+          // 3. Customer Phone Input
+          TextField(
+            controller: _phoneController,
+            keyboardType: TextInputType.phone,
+            decoration: InputDecoration(
+              labelText: 'Customer Mobile Number',
+              hintText: '0244123456',
+              prefixIcon: const Icon(Icons.phone_android_rounded),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 4. Amount Input
+          TextField(
+            controller: _amountController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              labelText: 'Amount (GHS)',
+              prefixText: 'GHS ',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Quick Amount Chips
+          Wrap(
+            spacing: 8,
+            children: _quickAmounts.map((amt) {
+              return ActionChip(
+                label: Text('+${amt.toInt()}'),
+                onPressed: () {
+                  setState(() {
+                    _amountController.text = amt.toStringAsFixed(0);
+                  });
+                },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+
+          // 5. Live USSD Preview & Direct Dial Button
+          Card(
+            color: const Color(0xFFF1F3F4),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Compiled USSD String:',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    ussdString,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Color(0xFF1A73E8),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 6. Action Button: 1-Tap Dial & Record
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              backgroundColor: const Color(0xFF1A73E8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: const Icon(Icons.phone_in_talk_rounded),
+            label: const Text('Dial USSD & Record Transaction', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            onPressed: () async {
+              if (amount <= 0 || _phoneController.text.length < 9) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a valid phone number and amount')),
+                );
+                return;
+              }
+
+              // Dial USSD on hardware
+              await UssdService.dialUssd(ussdString);
+
+              // Record in local database
+              provider.recordTransaction(
+                type: _selectedType,
+                amount: amount,
+                customerPhone: _phoneController.text,
+                ussdString: ussdString,
+              );
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Transaction recorded! Float updated.'),
+                  backgroundColor: Color(0xFF1E8E3E),
+                ),
+              );
+
+              _amountController.clear();
+              _phoneController.clear();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+
+// ==========================================
+// FILE: lib/screens/reconciliation_screen.dart
+// ==========================================
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/momo_provider.dart';
+
+class ReconciliationScreen extends StatefulWidget {
+  const ReconciliationScreen({super.key});
+
+  @override
+  State<ReconciliationScreen> createState() => _ReconciliationScreenState();
+}
+
+class _ReconciliationScreenState extends State<ReconciliationScreen> {
+  final TextEditingController _cashController = TextEditingController();
+  final TextEditingController _smsPasteController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final provider = context.read<MoMoProvider>();
+    _cashController.text = provider.currentCashInDrawer.toStringAsFixed(2);
+  }
+
+  @override
+  void dispose() {
+    _cashController.dispose();
+    _smsPasteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<MoMoProvider>();
+    final result = provider.lastReconciliation;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Step 1: Physical Cash Count
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.point_of_sale_rounded, color: Color(0xFF1A73E8)),
+                      SizedBox(width: 8),
+                      Text(
+                        'Step 1: Count Physical Drawer Cash',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _cashController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      labelText: 'Physical Cash Counted (GHS)',
+                      prefixText: 'GHS ',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Step 2: Auto SMS Reader or Paste
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.sms_rounded, color: Color(0xFF1E8E3E)),
+                      SizedBox(width: 8),
+                      Text(
+                        'Step 2: Read Telecom SMS Confirmations',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Automatically extract customer deposits, withdrawals, and ending float balances.',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF5F6368)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _smsPasteController,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'Paste MoMo SMS or tap Auto-Scan...',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.phonelink_ring_rounded),
+                          label: const Text('Read Phone Inbox'),
+                          onPressed: () => provider.readDeviceSmsInbox(context),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          icon: const Icon(Icons.bolt_rounded),
+                          label: const Text('Run 3-Way Match'),
+                          onPressed: () {
+                            final cash = double.tryParse(_cashController.text) ?? 0.0;
+                            provider.reconcileShift(
+                              physicalCash: cash,
+                              rawSms: _smsPasteController.text,
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Step 3: Result Card
+          if (result != null) ...[
+            Card(
+              color: result.status == 'BALANCED'
+                  ? const Color(0xFFE6F4EA)
+                  : const Color(0xFFFCE8E6),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          result.status == 'BALANCED'
+                              ? Icons.check_circle_rounded
+                              : Icons.warning_amber_rounded,
+                          color: result.status == 'BALANCED'
+                              ? const Color(0xFF1E8E3E)
+                              : Colors.red,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          result.status == 'BALANCED'
+                              ? 'PERFECTLY BALANCED (0.00 Variance)'
+                              : 'VARIANCE: GHS ${result.cashVariance.abs().toStringAsFixed(2)} ${result.status}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: result.status == 'BALANCED'
+                                ? const Color(0xFF1E8E3E)
+                                : Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 24),
+                    Text('Expected Cash: GHS ${result.expectedPhysicalCash.toStringAsFixed(2)}'),
+                    Text('Counted Cash: GHS ${result.physicalCashCount.toStringAsFixed(2)}'),
+                    Text('Total Deposits: GHS ${result.totalCashIn.toStringAsFixed(2)}'),
+                    Text('Total Withdrawals: GHS ${result.totalCashOut.toStringAsFixed(2)}'),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        result.aiDiagnosis,
+                        style: const TextStyle(fontSize: 13, color: Color(0xFF3C4043)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+

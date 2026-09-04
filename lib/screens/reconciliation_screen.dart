@@ -320,7 +320,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                       prefixText: 'GHS ',
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: Theme.of(context).cardColor,
                     ),
                     onChanged: (val) {
                       final parsed = double.tryParse(val);
@@ -401,9 +401,8 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                   margin: const EdgeInsets.only(bottom: 6),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
-                    side: const BorderSide(color: Color(0xFFE8EAED)),
+                    side: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                   ),
-                  color: Colors.white,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     child: Row(
