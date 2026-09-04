@@ -6,6 +6,10 @@ import 'package:printing/printing.dart';
 import '../models/momo_models.dart';
 
 class ReceiptService {
+  static final _currencyFormatter = NumberFormat('#,##0.00', 'en_US');
+
+  static String _fmt(double val) => _currencyFormatter.format(val);
+
   /// Generates a standard 58mm ESC/POS thermal receipt document
   static Future<pw.Document> generateThermalReceipt({
     required TransactionRecord tx,
@@ -33,7 +37,7 @@ class ReceiptService {
               children: [
                 // Store Header
                 pw.Text(
-                  'MOMOBOSS POS',
+                  'MOBIBOSS POS',
                   style: pw.TextStyle(font: fontBold, fontSize: 13, fontWeight: pw.FontWeight.bold),
                 ),
                 pw.Text('Ghana Mobile Money Agent', style: const pw.TextStyle(fontSize: 8)),
@@ -93,7 +97,7 @@ class ReceiptService {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Transaction Amount:', style: pw.TextStyle(font: fontBold, fontSize: 10)),
-                    pw.Text('GHS ${tx.amount.toStringAsFixed(2)}', style: pw.TextStyle(font: fontBold, fontSize: 11)),
+                    pw.Text('GHS ${_fmt(tx.amount)}', style: pw.TextStyle(font: fontBold, fontSize: 11)),
                   ],
                 ),
                 if (tx.fee > 0) ...[
@@ -102,7 +106,7 @@ class ReceiptService {
                     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                     children: [
                       pw.Text('Network Fee:', style: const pw.TextStyle(fontSize: 8)),
-                      pw.Text('GHS ${tx.fee.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8)),
+                      pw.Text('GHS ${_fmt(tx.fee)}', style: const pw.TextStyle(fontSize: 8)),
                     ],
                   ),
                 ],
@@ -189,28 +193,28 @@ class ReceiptService {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Opening Drawer Cash:'),
-                    pw.Text('GHS ${shift.openingCash.toStringAsFixed(2)}'),
+                    pw.Text('GHS ${_fmt(shift.openingCash)}'),
                   ],
                 ),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Total Inflows (+):'),
-                    pw.Text('GHS ${shift.totalCashIn.toStringAsFixed(2)}', style: pw.TextStyle(font: fontBold)),
+                    pw.Text('GHS ${_fmt(shift.totalCashIn)}', style: pw.TextStyle(font: fontBold)),
                   ],
                 ),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Total Outflows (-):'),
-                    pw.Text('GHS ${shift.totalCashOut.toStringAsFixed(2)}', style: pw.TextStyle(font: fontBold)),
+                    pw.Text('GHS ${_fmt(shift.totalCashOut)}', style: pw.TextStyle(font: fontBold)),
                   ],
                 ),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Total Commission:'),
-                    pw.Text('GHS ${shift.totalCommissions.toStringAsFixed(2)}', style: pw.TextStyle(font: fontBold)),
+                    pw.Text('GHS ${_fmt(shift.totalCommissions)}', style: pw.TextStyle(font: fontBold)),
                   ],
                 ),
                 pw.SizedBox(height: 4),
@@ -220,14 +224,14 @@ class ReceiptService {
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Expected Cash:'),
-                    pw.Text('GHS ${shift.expectedCash.toStringAsFixed(2)}', style: pw.TextStyle(font: fontBold)),
+                    pw.Text('GHS ${_fmt(shift.expectedCash)}', style: pw.TextStyle(font: fontBold)),
                   ],
                 ),
                 pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
                     pw.Text('Counted Cash:'),
-                    pw.Text('GHS ${shift.closingCash.toStringAsFixed(2)}', style: pw.TextStyle(font: fontBold)),
+                    pw.Text('GHS ${_fmt(shift.closingCash)}', style: pw.TextStyle(font: fontBold)),
                   ],
                 ),
                 pw.Row(
@@ -235,7 +239,7 @@ class ReceiptService {
                   children: [
                     pw.Text('Variance:'),
                     pw.Text(
-                      '${shift.cashVariance >= 0 ? "+" : ""}GHS ${shift.cashVariance.toStringAsFixed(2)}',
+                      '${shift.cashVariance >= 0 ? "+" : ""}GHS ${_fmt(shift.cashVariance)}',
                       style: pw.TextStyle(font: fontBold, fontSize: 10),
                     ),
                   ],
@@ -294,11 +298,11 @@ class ReceiptService {
     required Till till,
   }) {
     final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
-    return '''🧾 *MOMOBOSS POS RECEIPT*
+    return '''🧾 *MOBIBOSS POS RECEIPT*
 ━━━━━━━━━━━━━━━━━━━━
 📌 *${_getTypeTitle(tx.type).toUpperCase()}* [CONFIRMED]
 👤 *Customer:* ${tx.customerPhone}
-💵 *Amount:* GHS ${tx.amount.toStringAsFixed(2)}
+💵 *Amount:* GHS ${_fmt(tx.amount)}
 🔢 *Ref ID:* ${tx.reference}
 🕒 *Date:* ${dateFormat.format(tx.timestamp)}
 🏪 *Till:* ${till.tillName} (${till.network.name.toUpperCase()})
@@ -332,18 +336,18 @@ Thank you for transacting with us!''';
     required ShiftRecord shift,
   }) {
     final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
-    return '''📊 *MOMOBOSS SHIFT #${shift.shiftNumber} SETTLEMENT*
+    return '''📊 *MOBIBOSS SHIFT #${shift.shiftNumber} SETTLEMENT*
 ━━━━━━━━━━━━━━━━━━━━
 🕒 *Period:* ${dateFormat.format(shift.startTime)} → ${dateFormat.format(shift.endTime)}
 🔢 *Total Transactions:* ${shift.transactionCount}
-💰 *Opening Drawer Cash:* GHS ${shift.openingCash.toStringAsFixed(2)}
-📥 *Total Inflows (+):* GHS ${shift.totalCashIn.toStringAsFixed(2)}
-📤 *Total Outflows (-):* GHS ${shift.totalCashOut.toStringAsFixed(2)}
-⭐ *Total Commissions:* GHS ${shift.totalCommissions.toStringAsFixed(2)}
+💰 *Opening Drawer Cash:* GHS ${_fmt(shift.openingCash)}
+📥 *Total Inflows (+):* GHS ${_fmt(shift.totalCashIn)}
+📤 *Total Outflows (-):* GHS ${_fmt(shift.totalCashOut)}
+⭐ *Total Commissions:* GHS ${_fmt(shift.totalCommissions)}
 ━━━━━━━━━━━━━━━━━━━━
-🎯 *Expected Cash:* GHS ${shift.expectedCash.toStringAsFixed(2)}
-💵 *Counted Cash:* GHS ${shift.closingCash.toStringAsFixed(2)}
-⚖️ *Variance:* ${shift.cashVariance >= 0 ? "+" : ""}GHS ${shift.cashVariance.toStringAsFixed(2)}
+🎯 *Expected Cash:* GHS ${_fmt(shift.expectedCash)}
+💵 *Counted Cash:* GHS ${_fmt(shift.closingCash)}
+⚖️ *Variance:* ${shift.cashVariance >= 0 ? "+" : ""}GHS ${_fmt(shift.cashVariance)}
 📌 *Status:* ${shift.status}
 ━━━━━━━━━━━━━━━━━━━━
 _${shift.aiDiagnosis}_''';

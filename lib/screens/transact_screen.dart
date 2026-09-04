@@ -19,6 +19,7 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
   TransactionType _selectedType = TransactionType.cashIn;
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
+  bool _isUssdStepsExpanded = false;
 
   final List<double> _quickAmounts = [50, 100, 200, 500, 1000];
 
@@ -50,12 +51,12 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
     final provider = context.watch<MoMoProvider>();
     final activeTill = provider.selectedTill;
     final amount = double.tryParse(_amountController.text) ?? 0.0;
-    final phone = _phoneController.text.isEmpty ? '024XXXXXXX' : _phoneController.text;
+    final customerPhone = _phoneController.text.trim().isEmpty ? '024XXXXXXX' : _phoneController.text.trim();
 
     final plan = UssdService.buildMultiStepPlan(
       till: activeTill,
       type: _selectedType,
-      customerPhone: phone,
+      customerPhone: customerPhone,
       amount: amount,
     );
 
@@ -63,7 +64,7 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
       return Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: _buildModeSwitcher(),
           ),
           const Expanded(child: ServicesScreen()),
@@ -307,60 +308,82 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
           ),
           const SizedBox(height: 16),
 
-          // 5. Automated Multi-Step Navigation Breakdown
+          // 5. Automated Multi-Step Navigation Breakdown (Collapsible)
           Card(
-            color: const Color(0xFFF1F3F4),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Automated USSD Flow (Ghana Telecoms):',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF5F6368)),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE8F0FE),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          plan.rootCode,
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _buildStepChip('1. Dial ${plan.rootCode}'),
-                      const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
-                      ...plan.steps.asMap().entries.map((entry) {
-                        return Row(
-                          mainAxisSize: MainAxisSize.min,
+            color: Theme.of(context).brightness == Brightness.dark
+                ? const Color(0xFF1E1E1E)
+                : const Color(0xFFF1F3F4),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => setState(() => _isUssdStepsExpanded = !_isUssdStepsExpanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
                           children: [
-                            _buildStepChip('${entry.key + 2}. Enter "${entry.value}"'),
-                            if (entry.key < plan.steps.length - 1)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 2),
-                                child: Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                            const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFF1A73E8)),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Auto USSD: ${plan.rootCode} (${plan.steps.length + 1} steps)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? const Color(0xFFE8EAED)
+                                    : const Color(0xFF202124),
                               ),
+                            ),
                           ],
-                        );
-                      }),
-                      const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
-                      _buildStepChip('🔒 Pause at PIN', isPin: true),
+                        ),
+                        Row(
+                          children: [
+                            Text(
+                              _isUssdStepsExpanded ? 'Hide Steps' : 'Show Steps',
+                              style: const TextStyle(fontSize: 10, color: Color(0xFF1A73E8), fontWeight: FontWeight.bold),
+                            ),
+                            Icon(
+                              _isUssdStepsExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                              size: 16,
+                              color: const Color(0xFF1A73E8),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    if (_isUssdStepsExpanded) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          _buildStepChip('1. Dial ${plan.rootCode}'),
+                          const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                          ...plan.steps.asMap().entries.map((entry) {
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildStepChip('${entry.key + 2}. Enter "${entry.value}"'),
+                                if (entry.key < plan.steps.length - 1)
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 2),
+                                    child: Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                                  ),
+                              ],
+                            );
+                          }),
+                          const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                          _buildStepChip('🔒 Pause at PIN', isPin: true),
+                        ],
+                      ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -393,8 +416,8 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
                     title: const Text('Accessibility Service Required'),
                     content: const Text(
                       'The USSD Auto-Navigation service must be enabled in Android Accessibility Settings '
-                      'so MoMo Boss can auto-fill menus up to the PIN prompt.\n\n'
-                      'Look for "MomoBoss" in the list and enable it.',
+                      'so MobiBoss can auto-fill menus up to the PIN prompt.\n\n'
+                      'Look for "MobiBoss" in the list and enable it.',
                     ),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
@@ -437,13 +460,18 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
   }
 
   Widget _buildStepChip(String label, {bool isPin = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: isPin ? const Color(0xFFFFF4CC) : Colors.white,
+        color: isPin
+            ? (isDark ? const Color(0xFF3E2E04) : const Color(0xFFFFF4CC))
+            : (isDark ? const Color(0xFF2D2F31) : Colors.white),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
-          color: isPin ? const Color(0xFFF9AB00) : const Color(0xFFDADCE0),
+          color: isPin
+              ? const Color(0xFFF9AB00)
+              : (isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
         ),
       ),
       child: Text(
@@ -451,7 +479,9 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
         style: TextStyle(
           fontSize: 10,
           fontWeight: isPin ? FontWeight.bold : FontWeight.w500,
-          color: isPin ? const Color(0xFFB06000) : const Color(0xFF3C4043),
+          color: isPin
+              ? const Color(0xFFF9AB00)
+              : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043)),
         ),
       ),
     );

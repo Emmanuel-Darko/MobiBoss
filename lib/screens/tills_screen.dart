@@ -32,61 +32,91 @@ class TillsScreen extends StatelessWidget {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Top Summary Card with Add Till Action
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Total Working Float',
-                          style: TextStyle(fontSize: 13, color: Color(0xFF5F6368), fontWeight: FontWeight.w500),
-                        ),
-                        FilledButton.tonalIcon(
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                          icon: const Icon(Icons.add_rounded, size: 16),
-                          label: const Text('Add Till', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                          onPressed: () => _showAddTillModal(context, provider),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      provider.formatAmount(totalFloat),
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF202124),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Managed across ${tills.length} physical SIM Tills & Accounts',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF80868B)),
-                    ),
-                  ],
+            // Top Summary Hero Card with Add Till Action
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF161B26), Color(0xFF1E2433)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF2D3748)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'TOTAL WORKING FLOAT',
+                        style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                      ),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF1A73E8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        label: const Text('Add Till', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        onPressed: () => _showAddTillModal(context, provider),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    provider.formatAmount(totalFloat),
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFFF8FAFC),
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF10B981),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Managed across ${tills.length} physical SIM Tills & Accounts',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
 
             // Section Header
             const Text(
               'Active SIM Tills & Wallets',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF202124)),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
             const SizedBox(height: 8),
 
@@ -105,13 +135,14 @@ class TillsScreen extends StatelessWidget {
                 final isSelected = till.id == provider.selectedTill.id;
                 final netColor = _getNetworkColor(till.network);
                 final isLowFloat = till.currentFloat <= till.minFloatAlert;
+                final isDark = Theme.of(context).brightness == Brightness.dark;
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 10),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                     side: BorderSide(
-                      color: isSelected ? const Color(0xFF1A73E8) : (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
+                      color: isSelected ? const Color(0xFF1A73E8) : (isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                       width: isSelected ? 1.8 : 1.0,
                     ),
                   ),
@@ -125,7 +156,7 @@ class TillsScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: netColor.withValues(alpha: 0.12),
+                                color: netColor.withValues(alpha: isDark ? 0.2 : 0.12),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Icon(Icons.sim_card_rounded, color: netColor, size: 20),
@@ -149,7 +180,7 @@ class TillsScreen extends StatelessWidget {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFFE8F0FE),
+                                            color: isDark ? const Color(0xFF182B42) : const Color(0xFFE8F0FE),
                                             borderRadius: BorderRadius.circular(4),
                                           ),
                                           child: const Text('ACTIVE', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8))),
@@ -160,13 +191,13 @@ class TillsScreen extends StatelessWidget {
                                   const SizedBox(height: 2),
                                   Text(
                                     '${till.network.name.toUpperCase()} • ${till.tillNumber} • ${till.simSlot}',
-                                    style: const TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
+                                    style: TextStyle(fontSize: 11, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368)),
                                   ),
                                 ],
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.tune_rounded, size: 20, color: Color(0xFF5F6368)),
+                              icon: Icon(Icons.tune_rounded, size: 20, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368)),
                               tooltip: 'Edit Till & Alert Threshold',
                               onPressed: () => _showEditTillModal(context, provider, till),
                             ),
@@ -179,13 +210,15 @@ class TillsScreen extends StatelessWidget {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Current Float', style: TextStyle(fontSize: 10, color: Color(0xFF5F6368))),
+                                Text('Current Float', style: TextStyle(fontSize: 10, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
                                 Text(
                                   provider.formatAmount(till.currentFloat),
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
-                                    color: isLowFloat ? const Color(0xFFD93025) : const Color(0xFF1E8E3E),
+                                    color: isLowFloat
+                                        ? (isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025))
+                                        : (isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E)),
                                   ),
                                 ),
                               ],
@@ -193,13 +226,15 @@ class TillsScreen extends StatelessWidget {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                const Text('Alert Threshold', style: TextStyle(fontSize: 10, color: Color(0xFF5F6368))),
+                                Text('Alert Threshold', style: TextStyle(fontSize: 10, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
                                 Text(
-                                  '< GHS ${till.minFloatAlert.toStringAsFixed(0)}',
+                                  '< GHS ${MoMoProvider.formatNumber(till.minFloatAlert)}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
-                                    color: isLowFloat ? const Color(0xFFD93025) : const Color(0xFF5F6368),
+                                    color: isLowFloat
+                                        ? (isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025))
+                                        : (isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368)),
                                   ),
                                 ),
                               ],
@@ -211,17 +246,25 @@ class TillsScreen extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFCE8E6),
+                              color: isDark ? const Color(0xFF331716) : const Color(0xFFFCE8E6),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.warning_amber_rounded, size: 14, color: Color(0xFFD93025)),
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 14,
+                                  color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
+                                ),
                                 const SizedBox(width: 6),
                                 Expanded(
                                   child: Text(
                                     'Low float alert! Rebalance ${till.network.name.toUpperCase()} reserves soon.',
-                                    style: const TextStyle(fontSize: 10, color: Color(0xFFD93025), fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ],

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
+import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
 import '../models/momo_models.dart';
@@ -10,6 +11,7 @@ import '../services/ussd_service.dart';
 class MoMoProvider extends ChangeNotifier {
   final _uuid = const Uuid();
   final SmsQuery _smsQuery = SmsQuery();
+  static final _currencyFormatter = NumberFormat('#,##0.00', 'en_US');
 
   double _currentCashInDrawer = 2500.00;
   double _initialDrawerOpeningBalance = 2500.00;
@@ -61,12 +63,17 @@ class MoMoProvider extends ChangeNotifier {
 
   int get currentShiftNumber => _shiftHistory.length + 1;
 
-  /// Formats amount taking privacy mask into account
+  /// Formats amount with thousand separators taking privacy mask into account
   String formatAmount(double amount, {String prefix = 'GHS '}) {
     if (_isBalancePrivacyEnabled) {
       return '$prefix••••••';
     }
-    return '$prefix${amount.toStringAsFixed(2)}';
+    return '$prefix${_currencyFormatter.format(amount)}';
+  }
+
+  /// Formats raw number with thousand separators (e.g. 1,000.00)
+  static String formatNumber(double amount) {
+    return _currencyFormatter.format(amount);
   }
 
   /// Returns only SMS records from selected senders within the chosen time period
@@ -554,7 +561,7 @@ class MoMoProvider extends ChangeNotifier {
           builder: (ctx) => AlertDialog(
             title: const Text('SMS Permission Required'),
             content: const Text(
-              'MomoBoss requires SMS reading permission to inspect transaction confirmations from your mobile networks and payment providers.',
+              'MobiBoss requires SMS reading permission to inspect transaction confirmations from your mobile networks and payment providers.',
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),

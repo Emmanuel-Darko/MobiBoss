@@ -99,8 +99,8 @@ class _CustomerTestScreenState extends State<CustomerTestScreen> with WidgetsBin
         title: const Text('Accessibility Service Required'),
         content: const Text(
           'The USSD Auto-Navigation service must be enabled in your Android Accessibility Settings. '
-          'This allows MoMo Boss to automatically fill USSD menu prompts.\n\n'
-          'Look for "MomoBoss" in the list and enable it.',
+          'This allows MobiBoss to automatically fill USSD menu prompts.\n\n'
+          'Look for "MobiBoss" in the list and enable it.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),

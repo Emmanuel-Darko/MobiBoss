@@ -25,6 +25,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
   String _selectedDataTier = '1'; // Package option code
   String _selectedPayTvProvider = 'DSTV';
   String _selectedBank = 'GCB Bank';
+  bool _isUssdStepsExpanded = false;
 
   final List<double> _airtimeQuickAmounts = [2, 5, 10, 20, 50, 100];
 
@@ -226,70 +227,82 @@ class _ServicesScreenState extends State<ServicesScreen> {
           ),
           const SizedBox(height: 14),
 
-          // ─── USSD Automation Breakdown Card ───
+          // ─── USSD Automation Breakdown Card (Collapsible) ───
           Card(
             color: Theme.of(context).brightness == Brightness.dark
                 ? const Color(0xFF1E1E1E)
                 : const Color(0xFFF1F3F4),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Automated USSD Menu Steps:',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? const Color(0xFF9AA0A6)
-                              : const Color(0xFF5F6368),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? const Color(0xFF1A3B66)
-                              : const Color(0xFFE8F0FE),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          plan.rootCode,
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _buildChip('1. Dial ${plan.rootCode}'),
-                      const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
-                      ...plan.steps.asMap().entries.map((entry) {
-                        return Row(
-                          mainAxisSize: MainAxisSize.min,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => setState(() => _isUssdStepsExpanded = !_isUssdStepsExpanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
                           children: [
-                            _buildChip('${entry.key + 2}. Enter "${entry.value}"'),
-                            if (entry.key < plan.steps.length - 1)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 2),
-                                child: Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                            const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFF1A73E8)),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Auto USSD: ${plan.rootCode} (${plan.steps.length + 1} steps)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? const Color(0xFFE8EAED)
+                                    : const Color(0xFF202124),
                               ),
+                            ),
                           ],
-                        );
-                      }),
-                      const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
-                      _buildChip('🔒 Pause at PIN', isPin: true),
+                        ),
+                        Row(
+                          children: [
+                            Text(
+                              _isUssdStepsExpanded ? 'Hide Steps' : 'Show Steps',
+                              style: const TextStyle(fontSize: 10, color: Color(0xFF1A73E8), fontWeight: FontWeight.bold),
+                            ),
+                            Icon(
+                              _isUssdStepsExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                              size: 16,
+                              color: const Color(0xFF1A73E8),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    if (_isUssdStepsExpanded) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          _buildChip('1. Dial ${plan.rootCode}'),
+                          const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                          ...plan.steps.asMap().entries.map((entry) {
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildChip('${entry.key + 2}. Enter "${entry.value}"'),
+                                if (entry.key < plan.steps.length - 1)
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 2),
+                                    child: Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                                  ),
+                              ],
+                            );
+                          }),
+                          const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
+                          _buildChip('🔒 Pause at PIN', isPin: true),
+                        ],
+                      ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -322,7 +335,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
                     title: const Text('Accessibility Service Required'),
                     content: const Text(
                       'The USSD Auto-Navigation service must be enabled in your Android Accessibility Settings to auto-fill menu steps.\n\n'
-                      'Look for "MomoBoss" in the list and enable it.',
+                      'Look for "MobiBoss" in the list and enable it.',
                     ),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),

@@ -31,7 +31,7 @@ class MoMoApp extends StatelessWidget {
     final provider = context.watch<MoMoProvider>();
 
     return MaterialApp(
-      title: 'MomoBoss',
+      title: 'MobiBoss',
       debugShowCheckedModeBanner: false,
       themeMode: provider.themeMode,
       theme: ThemeData(
@@ -45,7 +45,7 @@ class MoMoApp extends StatelessWidget {
           surface: Colors.white,
         ),
         textTheme: GoogleFonts.plusJakartaSansTextTheme(
-          Theme.of(context).textTheme,
+          ThemeData.light().textTheme,
         ),
         appBarTheme: const AppBarTheme(
           centerTitle: false,
@@ -166,7 +166,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
   Future<void> _checkAppLock() async {
     final provider = context.read<MoMoProvider>();
     if (provider.isAppLockEnabled) {
-      final pass = await SecurityService.authenticate(reason: 'Unlock MoMo Boss POS');
+      final pass = await SecurityService.authenticate(reason: 'Unlock MobiBoss POS');
       setState(() => _isAuthenticated = pass);
     } else {
       setState(() => _isAuthenticated = true);
@@ -185,7 +185,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
             children: [
               const Icon(Icons.lock_rounded, size: 64, color: Color(0xFF1A73E8)),
               const SizedBox(height: 16),
-              const Text('MomoBoss is Locked', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const Text('MobiBoss is Locked', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               const SizedBox(height: 8),
               const Text('Authenticate with fingerprint or PIN to continue.', style: TextStyle(color: Color(0xFF5F6368))),
               const SizedBox(height: 24),
@@ -219,7 +219,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'MomoBoss',
+                    'MobiBoss',
                     style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
                     overflow: TextOverflow.ellipsis,
                   ),

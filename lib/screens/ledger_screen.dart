@@ -144,9 +144,9 @@ class _LedgerScreenState extends State<LedgerScreen> {
     }
 
     final dateFormat = DateFormat('dd MMM, hh:mm a');
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
       body: Column(
         children: [
           // Top Metrics Bar
@@ -159,7 +159,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
                   child: _buildMetricCard(
                     title: 'Inflow',
                     amount: provider.formatAmount(totalIn),
-                    color: const Color(0xFF1E8E3E),
+                    color: isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E),
+                    bgColor: isDark ? const Color(0xFF132B1B) : const Color(0xFFE6F4EA),
                     icon: Icons.arrow_downward_rounded,
                   ),
                 ),
@@ -168,7 +169,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
                   child: _buildMetricCard(
                     title: 'Outflow',
                     amount: provider.formatAmount(totalOut),
-                    color: const Color(0xFFD93025),
+                    color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
+                    bgColor: isDark ? const Color(0xFF331716) : const Color(0xFFFCE8E6),
                     icon: Icons.arrow_upward_rounded,
                   ),
                 ),
@@ -177,14 +179,15 @@ class _LedgerScreenState extends State<LedgerScreen> {
                   child: _buildMetricCard(
                     title: 'Commission',
                     amount: provider.formatAmount(totalCommission),
-                    color: const Color(0xFF1A73E8),
+                    color: isDark ? const Color(0xFF8AB4F8) : const Color(0xFF1A73E8),
+                    bgColor: isDark ? const Color(0xFF182B42) : const Color(0xFFE8F0FE),
                     icon: Icons.stars_rounded,
                   ),
                 ),
               ],
             ),
           ),
-          Divider(height: 1, color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
+          Divider(height: 1, color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
 
           // Search & Filter Row
           Padding(
@@ -203,7 +206,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
+                      borderSide: BorderSide(color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                     ),
                   ),
                 ),
@@ -357,6 +360,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
 
   void _showReceiptModal(BuildContext context, TransactionRecord tx, Till till) {
     final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
       context: context,
@@ -382,22 +386,22 @@ class _LedgerScreenState extends State<LedgerScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFAFAFA),
+                  color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFAFAFA),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE8EAED)),
+                  border: Border.all(color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
                 ),
                 child: Column(
                   children: [
-                    const Text('MOMOBOSS POS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                    Text('Agent: ${till.agentCode} • ${till.tillName}', style: const TextStyle(fontSize: 11, color: Color(0xFF5F6368))),
+                    const Text('MOBIBOSS POS', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    Text('Agent: ${till.agentCode} • ${till.tillName}', style: TextStyle(fontSize: 11, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
                     const Divider(height: 16),
                     _buildReceiptRow('Type', _getTypeLabel(tx.type)),
                     _buildReceiptRow('Customer', tx.customerPhone),
-                    _buildReceiptRow('Amount', 'GHS ${tx.amount.toStringAsFixed(2)}', isBold: true),
-                    if (tx.fee > 0) _buildReceiptRow('Fee', 'GHS ${tx.fee.toStringAsFixed(2)}'),
+                    _buildReceiptRow('Amount', 'GHS ${MoMoProvider.formatNumber(tx.amount)}', isBold: true),
+                    if (tx.fee > 0) _buildReceiptRow('Fee', 'GHS ${MoMoProvider.formatNumber(tx.fee)}'),
                     _buildReceiptRow('Reference ID', tx.reference),
                     _buildReceiptRow('Date & Time', dateFormat.format(tx.timestamp)),
-                    _buildReceiptRow('Status', 'CONFIRMED', valueColor: const Color(0xFF1E8E3E)),
+                    _buildReceiptRow('Status', 'CONFIRMED', valueColor: isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E)),
                   ],
                 ),
               ),
@@ -446,18 +450,19 @@ class _LedgerScreenState extends State<LedgerScreen> {
   }
 
   Widget _buildReceiptRow(String label, String value, {bool isBold = false, Color? valueColor}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF5F6368))),
+          Text(label, style: TextStyle(fontSize: 12, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
           Text(
             value,
             style: TextStyle(
               fontSize: 12,
               fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-              color: valueColor ?? const Color(0xFF202124),
+              color: valueColor ?? (isDark ? const Color(0xFFE8EAED) : const Color(0xFF202124)),
             ),
           ),
         ],
@@ -467,11 +472,12 @@ class _LedgerScreenState extends State<LedgerScreen> {
 
   Widget _buildFilterChip(String key, String label) {
     final isSelected = _filterNetwork == key;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ChoiceChip(
       label: Text(
         label,
         style: TextStyle(
-          color: isSelected ? Colors.white : const Color(0xFF3C4043),
+          color: isSelected ? Colors.white : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043)),
           fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           fontSize: 12,
         ),
@@ -488,14 +494,15 @@ class _LedgerScreenState extends State<LedgerScreen> {
     required String title,
     required String amount,
     required Color color,
+    required Color bgColor,
     required IconData icon,
   }) {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: bgColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

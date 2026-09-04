@@ -52,76 +52,95 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
 
           if (_viewMode == 0) ...[
             // ─── 1. Main Commission Hero Card ───
-            Card(
-              color: const Color(0xFF1E8E3E), // Agent Green
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          "Today's Commission",
-                          style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.trending_up_rounded, color: Colors.white, size: 14),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${(dailyProgress * 100).toInt()}% of goal',
-                                style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'GHS ${todayComm.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    LinearProgressIndicator(
-                      value: dailyProgress,
-                      backgroundColor: Colors.white.withValues(alpha: 0.25),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD54F)),
-                      minHeight: 6,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Daily Target: GHS ${dailyTarget.toStringAsFixed(0)}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 10),
-                        ),
-                        InkWell(
-                          onTap: () => _showTargetEditDialog(context, provider),
-                          child: const Text(
-                            'Edit Target',
-                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, decoration: TextDecoration.underline),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: Theme.of(context).brightness == Brightness.dark
+                      ? const [Color(0xFF142E1F), Color(0xFF0F2418)]
+                      : const [Color(0xFF1E8E3E), Color(0xFF137333)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF1E462E)
+                      : const Color(0xFF1E8E3E),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Today's Commission",
+                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.trending_up_rounded, color: Colors.white, size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${(dailyProgress * 100).toInt()}% of goal',
+                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    provider.formatAmount(todayComm),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                    value: dailyProgress,
+                    backgroundColor: Colors.white.withValues(alpha: 0.25),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD54F)),
+                    minHeight: 6,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Daily Target: GHS ${MoMoProvider.formatNumber(dailyTarget)}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 10),
+                      ),
+                      InkWell(
+                        onTap: () => _showTargetEditDialog(context, provider),
+                        child: const Text(
+                          'Edit Target',
+                          style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, decoration: TextDecoration.underline),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 12),
@@ -129,11 +148,11 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
             // ─── 2. Metric Grid (Week, Month, All-Time) ───
             Row(
               children: [
-                Expanded(child: _buildMetricTile('This Week', 'GHS ${weeklyComm.toStringAsFixed(2)}', Icons.calendar_view_week_rounded)),
+                Expanded(child: _buildMetricTile('This Week', provider.formatAmount(weeklyComm), Icons.calendar_view_week_rounded)),
                 const SizedBox(width: 8),
-                Expanded(child: _buildMetricTile('This Month', 'GHS ${monthlyComm.toStringAsFixed(2)}', Icons.calendar_month_rounded)),
+                Expanded(child: _buildMetricTile('This Month', provider.formatAmount(monthlyComm), Icons.calendar_month_rounded)),
                 const SizedBox(width: 8),
-                Expanded(child: _buildMetricTile('All-Time', 'GHS ${totalComm.toStringAsFixed(2)}', Icons.account_balance_rounded)),
+                Expanded(child: _buildMetricTile('All-Time', provider.formatAmount(totalComm), Icons.account_balance_rounded)),
               ],
             ),
             const SizedBox(height: 14),
