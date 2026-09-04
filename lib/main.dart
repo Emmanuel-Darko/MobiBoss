@@ -10,6 +10,7 @@ import 'screens/ledger_screen.dart';
 import 'screens/customer_test_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/security_service.dart';
+import 'widgets/top_toast.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -215,30 +216,61 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'MobiBoss',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    'Drawer: ${provider.formatAmount(provider.currentCashInDrawer)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? const Color(0xFF9AA0A6)
-                          : const Color(0xFF5F6368),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: () => _showAdjustDrawerModal(context, provider),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'MobiBoss',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Drawer: ${provider.formatAmount(provider.currentCashInDrawer)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? const Color(0xFF81C995)
+                                  : const Color(0xFF1E8E3E),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.edit_outlined, size: 12, color: Color(0xFF1E8E3E)),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.sync_rounded, size: 20),
+            tooltip: 'Sync Telco SMS',
+            onPressed: () async {
+              final count = await provider.syncRecentSms();
+              if (context.mounted) {
+                TopToast.show(
+                  context,
+                  title: count > 0 ? 'SMS Sync Complete' : 'Up to Date',
+                  message: count > 0
+                      ? 'Reconciled $count incoming telecom messages.'
+                      : 'No new MoMo confirmation SMS found.',
+                  icon: count > 0 ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                  backgroundColor: count > 0 ? const Color(0xFF1E8E3E) : const Color(0xFF5F6368),
+                );
+              }
+            },
+          ),
           IconButton(
             icon: Icon(
               provider.isBalancePrivacyEnabled ? Icons.visibility_off_rounded : Icons.visibility_rounded,
@@ -296,6 +328,73 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
             icon: Icon(Icons.receipt_long_outlined),
             selectedIcon: Icon(Icons.receipt_long_rounded, color: Color(0xFF1A73E8)),
             label: 'Ledger',
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAdjustDrawerModal(BuildContext context, MoMoProvider provider) {
+    final cashCtrl = TextEditingController(text: provider.currentCashInDrawer.toStringAsFixed(2));
+    final noteCtrl = TextEditingController(text: 'Shift Opening Cash Float');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.point_of_sale_rounded, color: Color(0xFF1E8E3E), size: 22),
+            SizedBox(width: 8),
+            Text('Adjust Cash in Drawer', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Set your opening physical cash in the drawer or update following a physical cash count.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: cashCtrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'Cash in Drawer (GHS)',
+                prefixText: 'GHS ',
+                prefixIcon: Icon(Icons.payments_rounded, size: 18),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: noteCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Reason / Note',
+                hintText: 'e.g. Opening Float, Cash Drop',
+                prefixIcon: Icon(Icons.notes_rounded, size: 18),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final val = double.tryParse(cashCtrl.text) ?? provider.currentCashInDrawer;
+              await provider.adjustDrawerCash(newAmount: val, reason: noteCtrl.text.trim());
+              if (context.mounted) {
+                Navigator.pop(ctx);
+                TopToast.show(
+                  context,
+                  title: 'Drawer Cash Updated',
+                  message: 'Physical drawer balance set to GHS ${provider.formatAmount(val)}',
+                  icon: Icons.check_circle_rounded,
+                  backgroundColor: const Color(0xFF1E8E3E),
+                );
+              }
+            },
+            child: const Text('Update Balance'),
           ),
         ],
       ),

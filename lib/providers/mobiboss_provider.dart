@@ -872,6 +872,291 @@ class MoMoProvider extends ChangeNotifier {
     if (updatedTill != null) {
       await DbService.updateTill(updatedTill!);
     }
+
+    // Physical cash drawer balance changes:
+    // Cash In / Airtime / Utility / PayTV: customer gives physical cash to drawer -> drawer increases
+    // Cash Out: agent hands physical cash to customer -> drawer decreases
+    switch (type) {
+      case TransactionType.cashIn:
+      case TransactionType.airtime:
+      case TransactionType.dataBundle:
+      case TransactionType.ecgElectricity:
+      case TransactionType.ghanaWater:
+      case TransactionType.payTv:
+        _currentCashInDrawer += amount;
+        break;
+      case TransactionType.cashOut:
+        _currentCashInDrawer -= amount;
+        break;
+      case TransactionType.floatTransfer:
+      case TransactionType.bankTransfer:
+        break;
+    }
+    await StorageService.saveDrawerCash(_currentCashInDrawer);
+  }
+
+  /// Records a completed direct transaction (for manual / offline / feature-phone usage)
+  Future<TransactionRecord> recordDirectTransaction({
+    required Till till,
+    required TransactionType type,
+    required double amount,
+    required String customerPhone,
+    String? reference,
+    double? customFee,
+  }) async {
+    final fee = customFee ?? 0.0;
+    final commission = _calculateCommission(till.network, type, amount);
+    final ref = (reference != null && reference.trim().isNotEmpty)
+        ? reference.trim()
+        : 'MB-DIR-${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}';
+
+    final tx = TransactionRecord(
+      id: _uuid.v4(),
+      tillId: till.id,
+      network: till.network,
+      type: type,
+      amount: amount,
+      fee: fee,
+      commission: commission,
+      customerPhone: customerPhone,
+      reference: ref,
+      ussdString: 'DIRECT_RECORD',
+      timestamp: DateTime.now(),
+      status: TransactionStatus.completed,
+    );
+
+    _transactions.insert(0, tx);
+    await DbService.insertTransaction(tx);
+    await _applyBalanceImpact(till.id, type, amount);
+    _autoUpdateContact(customerPhone, till.network);
+
+    if (_autoPrintReceipts && _selectedPrinter != null) {
+      final bytes = ReceiptService.buildEscPosTransactionReceipt(tx: tx, till: till);
+      await ReceiptService.printRawBytes(printerAddress: _selectedPrinter!.address, bytes: bytes);
+    }
+
+    recalculateReconciliation();
+    notifyListeners();
+    return tx;
+  }
+
+  /// Records a pending transaction when USSD session is initiated
+  Future<TransactionRecord> recordPendingUssdTransaction({
+    required Till till,
+    required TransactionType type,
+    required double amount,
+    required String customerPhone,
+    required String ussdCode,
+  }) async {
+    final commission = _calculateCommission(till.network, type, amount);
+    final tx = TransactionRecord(
+      id: _uuid.v4(),
+      tillId: till.id,
+      network: till.network,
+      type: type,
+      amount: amount,
+      fee: 0.0,
+      commission: commission,
+      customerPhone: customerPhone,
+      reference: 'PENDING-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+      ussdString: ussdCode,
+      timestamp: DateTime.now(),
+      status: TransactionStatus.pending,
+    );
+
+    _transactions.insert(0, tx);
+    await DbService.insertTransaction(tx);
+    notifyListeners();
+    return tx;
+  }
+
+  /// Global lightweight 1-tap SMS sync that queries device inbox and auto-reconciles
+  Future<int> syncRecentSms() async {
+    final permission = await Permission.sms.request();
+    if (!permission.isGranted) return 0;
+
+    try {
+      final messages = await _smsQuery.querySms(
+        kinds: [SmsQueryKind.inbox],
+        count: 50,
+      );
+
+      int newlySynced = 0;
+      for (final msg in messages) {
+        final rawAddress = (msg.address ?? '').trim();
+        final body = (msg.body ?? '').trim();
+        if (rawAddress.isEmpty || body.isEmpty) continue;
+
+        final isKnownSender = SmsParserService.isMoMoSender(rawAddress);
+        final hasPaymentKeywords = _containsPaymentKeywords(body);
+
+        if (isKnownSender || hasPaymentKeywords) {
+          final parsed = SmsParserService.parse(body, sender: rawAddress, timestamp: msg.date);
+          if (parsed != null) {
+            // Check if matches a pending transaction in ledger
+            final pendingIdx = _transactions.indexWhere(
+              (t) =>
+                  t.status == TransactionStatus.pending &&
+                  (t.amount == parsed.amount ||
+                      (parsed.customerPhone.isNotEmpty && t.customerPhone == parsed.customerPhone)),
+            );
+
+            if (pendingIdx != -1) {
+              final pendingTx = _transactions[pendingIdx];
+              final updatedTx = TransactionRecord(
+                id: pendingTx.id,
+                tillId: pendingTx.tillId,
+                network: parsed.network,
+                type: parsed.type,
+                amount: parsed.amount,
+                fee: parsed.fee,
+                commission: _calculateCommission(parsed.network, parsed.type, parsed.amount),
+                customerPhone: parsed.customerPhone.isNotEmpty ? parsed.customerPhone : pendingTx.customerPhone,
+                reference: parsed.reference,
+                ussdString: pendingTx.ussdString,
+                timestamp: parsed.timestamp,
+                status: TransactionStatus.completed,
+              );
+              _transactions[pendingIdx] = updatedTx;
+              await DbService.insertTransaction(updatedTx);
+              await _applyBalanceImpact(pendingTx.tillId, parsed.type, parsed.amount, postBalance: parsed.postBalance);
+              newlySynced++;
+            } else {
+              final existsInSms = _smsRecords.any((r) => r.reference == parsed.reference);
+              final existsInTx = _transactions.any((t) => t.reference == parsed.reference);
+
+              if (!existsInSms) {
+                _smsRecords.insert(0, parsed);
+              }
+              if (!existsInTx) {
+                await _autoRecordConfirmedTransaction(parsed);
+                newlySynced++;
+              }
+            }
+          }
+        }
+      }
+
+      if (newlySynced > 0) {
+        recalculateReconciliation();
+        notifyListeners();
+      }
+      return newlySynced;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Top-up till float using drawer cash or transfer float between SIM tills
+  Future<void> topUpTillFloat({
+    required String tillId,
+    required double amount,
+    required bool paidFromDrawer,
+    String? sourceTillId,
+  }) async {
+    final targetTill = _tills.firstWhere((t) => t.id == tillId);
+
+    if (sourceTillId != null && sourceTillId != tillId) {
+      final srcTill = _tills.firstWhere((t) => t.id == sourceTillId);
+      final updatedSrc = srcTill.copyWith(currentFloat: srcTill.currentFloat - amount);
+      final updatedTarget = targetTill.copyWith(currentFloat: targetTill.currentFloat + amount);
+      await updateTill(updatedSrc);
+      await updateTill(updatedTarget);
+
+      final tx = TransactionRecord(
+        id: _uuid.v4(),
+        tillId: tillId,
+        network: targetTill.network,
+        type: TransactionType.floatTransfer,
+        amount: amount,
+        fee: 0.0,
+        commission: 0.0,
+        customerPhone: '${srcTill.tillName} -> ${targetTill.tillName}',
+        reference: 'REBAL-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}',
+        ussdString: 'FLOAT_TRANSFER',
+        timestamp: DateTime.now(),
+        status: TransactionStatus.completed,
+      );
+      _transactions.insert(0, tx);
+      await DbService.insertTransaction(tx);
+    } else {
+      final updatedTarget = targetTill.copyWith(currentFloat: targetTill.currentFloat + amount);
+      await updateTill(updatedTarget);
+
+      if (paidFromDrawer) {
+        _currentCashInDrawer -= amount;
+        await StorageService.saveDrawerCash(_currentCashInDrawer);
+      }
+
+      final tx = TransactionRecord(
+        id: _uuid.v4(),
+        tillId: tillId,
+        network: targetTill.network,
+        type: TransactionType.floatTransfer,
+        amount: amount,
+        fee: 0.0,
+        commission: 0.0,
+        customerPhone: paidFromDrawer ? 'Drawer Cash Top-Up' : 'Bank/Super-Agent Purchase',
+        reference: 'TOPUP-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}',
+        ussdString: 'FLOAT_PURCHASE',
+        timestamp: DateTime.now(),
+        status: TransactionStatus.completed,
+      );
+      _transactions.insert(0, tx);
+      await DbService.insertTransaction(tx);
+    }
+
+    recalculateReconciliation();
+    notifyListeners();
+  }
+
+  /// Adjusts drawer cash balance (e.g. morning opening float or midday deposit/withdrawal)
+  Future<void> adjustDrawerCash({required double newAmount, required String reason}) async {
+    _currentCashInDrawer = newAmount;
+    await StorageService.saveDrawerCash(_currentCashInDrawer);
+    recalculateReconciliation();
+    notifyListeners();
+  }
+
+  /// Verifies PIN against active teller or store owners
+  bool verifyTellerPin(String pin) {
+    if (_tellers.isEmpty) return true;
+    final trimmed = pin.trim();
+    if (_activeTeller != null && _activeTeller!.pinHash == trimmed) return true;
+    return _tellers.any(
+      (t) => (t.role == TellerRole.owner || t.role == TellerRole.shiftSupervisor) && t.pinHash == trimmed,
+    );
+  }
+
+  /// Builds a formatted plain text digital receipt for WhatsApp or clipboard
+  String buildDigitalReceipt(TransactionRecord tx) {
+    final till = _tills.firstWhere((t) => t.id == tx.tillId, orElse: () => selectedTill);
+    final dateStr = DateFormat('dd MMM yyyy, HH:mm').format(tx.timestamp);
+    final typeName = tx.type == TransactionType.cashIn
+        ? 'Cash In (Deposit)'
+        : tx.type == TransactionType.cashOut
+            ? 'Cash Out (Withdrawal)'
+            : tx.type == TransactionType.airtime
+                ? 'Airtime Top-Up'
+                : tx.type == TransactionType.dataBundle
+                    ? 'Data Bundle'
+                    : tx.type.name.toUpperCase();
+
+    return '''
+🧾 MOBIBOSS TRANSACTION RECEIPT
+────────────────────────
+Network: ${till.network.name.toUpperCase()}
+Type: $typeName
+Amount: GHS ${formatNumber(tx.amount)}
+Fee: GHS ${formatNumber(tx.fee)}
+Customer: ${tx.customerPhone}
+Ref: ${tx.reference}
+Date: $dateStr
+Till: ${till.tillName} (${till.simSlot})
+Attendant: ${_activeTeller?.name ?? 'Main Attendant'}
+Status: ${tx.status == TransactionStatus.completed ? 'CONFIRMED ✓' : tx.status.name.toUpperCase()}
+────────────────────────
+Thank you for transacting with us!''';
   }
 
   /// Reconciles shift using active filtered SMS records and recorded transactions

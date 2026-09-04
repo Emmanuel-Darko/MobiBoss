@@ -66,17 +66,35 @@ class TillsScreen extends StatelessWidget {
                         'TOTAL WORKING FLOAT',
                         style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, letterSpacing: 0.8),
                       ),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF1A73E8),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        icon: const Icon(Icons.add_rounded, size: 16),
-                        label: const Text('Add Till', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                        onPressed: () => _showAddTillModal(context, provider),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF8AB4F8),
+                              side: const BorderSide(color: Color(0xFF3C4043)),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.swap_horiz_rounded, size: 15),
+                            label: const Text('Rebalance', style: TextStyle(fontSize: 11)),
+                            onPressed: () => _showTopUpTillModal(context, provider, provider.selectedTill),
+                          ),
+                          const SizedBox(width: 6),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF1A73E8),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.add_rounded, size: 16),
+                            label: const Text('Add Till', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            onPressed: () => _showAddTillModal(context, provider),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -281,11 +299,23 @@ class TillsScreen extends StatelessWidget {
                                     visualDensity: VisualDensity.compact,
                                     padding: const EdgeInsets.symmetric(vertical: 6),
                                   ),
-                                  child: const Text('Set as Active', style: TextStyle(fontSize: 11)),
+                                  child: const Text('Set Active', style: TextStyle(fontSize: 11)),
                                   onPressed: () => provider.selectTill(till.id),
                                 ),
                               ),
-                            if (!isSelected) const SizedBox(width: 8),
+                            if (!isSelected) const SizedBox(width: 6),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(vertical: 6),
+                                ),
+                                icon: const Icon(Icons.add_circle_outline_rounded, size: 14),
+                                label: const Text('Top-Up', style: TextStyle(fontSize: 11)),
+                                onPressed: () => _showTopUpTillModal(context, provider, till),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
                             Expanded(
                               child: FilledButton.tonalIcon(
                                 style: FilledButton.styleFrom(
@@ -293,7 +323,7 @@ class TillsScreen extends StatelessWidget {
                                   padding: const EdgeInsets.symmetric(vertical: 6),
                                 ),
                                 icon: const Icon(Icons.refresh_rounded, size: 14),
-                                label: const Text('Check Balance', style: TextStyle(fontSize: 11)),
+                                label: const Text('Balance', style: TextStyle(fontSize: 11)),
                                 onPressed: () {
                                   TopToast.show(
                                     context,
@@ -493,10 +523,7 @@ class TillsScreen extends StatelessWidget {
                     IconButton(
                       icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFD93025)),
                       tooltip: 'Delete Till',
-                      onPressed: () {
-                        provider.deleteTill(till.id);
-                        Navigator.pop(ctx);
-                      },
+                      onPressed: () => _confirmDeleteTill(context, provider, till),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -525,6 +552,210 @@ class TillsScreen extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteTill(BuildContext context, MoMoProvider provider, Till till) {
+    final pinCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFD93025), size: 22),
+            SizedBox(width: 8),
+            Text('Delete SIM Till', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Are you sure you want to delete "${till.tillName}"? '
+              'Any remaining float of GHS ${provider.formatAmount(till.currentFloat)} will be removed.',
+              style: const TextStyle(fontSize: 12),
+            ),
+            if (provider.tellers.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              TextField(
+                controller: pinCtrl,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Enter Attendant / Owner PIN',
+                  hintText: '4-digit PIN',
+                  prefixIcon: Icon(Icons.lock_rounded, size: 18),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD93025)),
+            onPressed: () async {
+              if (provider.tellers.isNotEmpty && !provider.verifyTellerPin(pinCtrl.text.trim())) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Invalid PIN. Action denied.')),
+                );
+                return;
+              }
+              await provider.deleteTill(till.id);
+              if (context.mounted) {
+                Navigator.pop(ctx);
+                Navigator.of(context).pop();
+                TopToast.show(
+                  context,
+                  title: 'Till Deleted',
+                  message: '${till.tillName} was removed.',
+                  icon: Icons.delete_outline_rounded,
+                  backgroundColor: const Color(0xFF5F6368),
+                );
+              }
+            },
+            child: const Text('Confirm Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTopUpTillModal(BuildContext context, MoMoProvider provider, Till targetTill) {
+    final amountCtrl = TextEditingController();
+    int mode = 0; // 0: From Drawer Cash, 1: From Bank/Super-Agent, 2: Transfer from other SIM
+    String? sourceTillId = provider.tills.where((t) => t.id != targetTill.id).isNotEmpty
+        ? provider.tills.firstWhere((t) => t.id != targetTill.id).id
+        : null;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Top-Up ${targetTill.tillName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                ],
+              ),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text('Source of Float', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  ChoiceChip(
+                    avatar: const Icon(Icons.point_of_sale_rounded, size: 16),
+                    label: const Text('Cash Drawer'),
+                    selected: mode == 0,
+                    onSelected: (sel) {
+                      if (sel) setModalState(() => mode = 0);
+                    },
+                  ),
+                  ChoiceChip(
+                    avatar: const Icon(Icons.account_balance_rounded, size: 16),
+                    label: const Text('Bank / Super-Agent'),
+                    selected: mode == 1,
+                    onSelected: (sel) {
+                      if (sel) setModalState(() => mode = 1);
+                    },
+                  ),
+                  if (provider.tills.length > 1)
+                    ChoiceChip(
+                      avatar: const Icon(Icons.swap_horiz_rounded, size: 16),
+                      label: const Text('Transfer SIM'),
+                      selected: mode == 2,
+                      onSelected: (sel) {
+                        if (sel) setModalState(() => mode = 2);
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                mode == 0
+                    ? 'Deducts physical cash from drawer (Available: GHS ${provider.formatAmount(provider.currentCashInDrawer)})'
+                    : mode == 1
+                        ? 'Direct float deposit without touching physical cash drawer.'
+                        : 'Transfers float from another active till into ${targetTill.tillName}.',
+                style: const TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
+              ),
+              if (mode == 2 && provider.tills.length > 1) ...[
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: sourceTillId,
+                  decoration: const InputDecoration(labelText: 'Source SIM Till'),
+                  items: provider.tills.where((t) => t.id != targetTill.id).map((t) {
+                    return DropdownMenuItem(
+                      value: t.id,
+                      child: Text('${t.tillName} (GHS ${provider.formatAmount(t.currentFloat)})'),
+                    );
+                  }).toList(),
+                  onChanged: (v) => setModalState(() => sourceTillId = v),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: amountCtrl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Float Amount to Add (GHS)',
+                  prefixText: 'GHS ',
+                  prefixIcon: Icon(Icons.add_card_rounded, size: 18),
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A73E8),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () async {
+                  final amount = double.tryParse(amountCtrl.text) ?? 0.0;
+                  if (amount <= 0) return;
+
+                  await provider.topUpTillFloat(
+                    tillId: targetTill.id,
+                    amount: amount,
+                    paidFromDrawer: mode == 0,
+                    sourceTillId: mode == 2 ? sourceTillId : null,
+                  );
+
+                  if (context.mounted) {
+                    Navigator.pop(ctx);
+                    TopToast.show(
+                      context,
+                      title: 'Float Added',
+                      message: 'GHS ${provider.formatAmount(amount)} added to ${targetTill.tillName}.',
+                      icon: Icons.check_circle_rounded,
+                      backgroundColor: const Color(0xFF1E8E3E),
+                    );
+                  }
+                },
+                child: const Text('Confirm & Update Float', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
           ),
         ),
       ),

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/mobiboss_provider.dart';
 import '../models/mobiboss_models.dart';
 import '../services/receipt_service.dart';
+import '../widgets/top_toast.dart';
 
 class LedgerScreen extends StatefulWidget {
   const LedgerScreen({super.key});
@@ -231,19 +233,47 @@ class _LedgerScreenState extends State<LedgerScreen> {
             ),
           ),
 
-          // Transactions List
+          // Transactions List with Pull-to-Refresh
           Expanded(
-            child: filtered.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No transactions found.',
-                      style: TextStyle(color: Color(0xFF80868B)),
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) {
+            child: RefreshIndicator(
+              onRefresh: () async {
+                final count = await provider.syncRecentSms();
+                if (context.mounted) {
+                  TopToast.show(
+                    context,
+                    title: count > 0 ? 'SMS Sync Complete' : 'Ledger Refreshed',
+                    message: count > 0
+                        ? 'Reconciled $count incoming telecom messages.'
+                        : 'Transactions are up to date.',
+                    icon: count > 0 ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                    backgroundColor: count > 0 ? const Color(0xFF1E8E3E) : const Color(0xFF5F6368),
+                  );
+                }
+              },
+              child: filtered.isEmpty
+                  ? ListView(
+                      children: const [
+                        SizedBox(height: 80),
+                        Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.receipt_long_outlined, size: 48, color: Color(0xFFBDC1C6)),
+                              SizedBox(height: 12),
+                              Text(
+                                'No transactions found.\nPull down to sync incoming telco SMS.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Color(0xFF80868B), fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
                       final tx = filtered[index];
                       final isCashOut = tx.type == TransactionType.cashOut;
                       final typeColor = _getTypeColor(tx.type);
@@ -370,7 +400,6 @@ class _LedgerScreenState extends State<LedgerScreen> {
                                   padding: const EdgeInsets.all(4),
                                   onPressed: () => ReceiptService.printReceipt(context: context, tx: tx, till: matchingTill),
                                 ),
-                                const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFFBDC1C6)),
                               ],
                             ),
                           ),
@@ -378,6 +407,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
                       );
                     },
                   ),
+            ),
           ),
         ],
       ),
@@ -442,15 +472,41 @@ class _LedgerScreenState extends State<LedgerScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
-                      icon: const Icon(Icons.share_rounded, size: 18),
-                      label: const Text('Share Receipt'),
+                      icon: const Icon(Icons.chat_rounded, size: 18, color: Color(0xFF1E8E3E)),
+                      label: const Text('WhatsApp Text', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: () async {
+                        final provider = context.read<MoMoProvider>();
+                        final text = provider.buildDigitalReceipt(tx);
+                        await Clipboard.setData(ClipboardData(text: text));
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          TopToast.show(
+                            context,
+                            title: 'Receipt Copied',
+                            message: 'Receipt text copied to clipboard! Paste into WhatsApp or SMS.',
+                            icon: Icons.check_circle_rounded,
+                            backgroundColor: const Color(0xFF1E8E3E),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                      label: const Text('Share PDF', style: TextStyle(fontSize: 12)),
                       onPressed: () async {
                         Navigator.pop(ctx);
                         await ReceiptService.shareReceiptPdf(tx: tx, till: till);
                       },
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton.icon(
                       style: FilledButton.styleFrom(
@@ -459,7 +515,7 @@ class _LedgerScreenState extends State<LedgerScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                       icon: const Icon(Icons.print_rounded, size: 18),
-                      label: const Text('Print Thermal'),
+                      label: const Text('Print', style: TextStyle(fontSize: 12)),
                       onPressed: () async {
                         Navigator.pop(ctx);
                         await ReceiptService.printReceipt(context: context, tx: tx, till: till);

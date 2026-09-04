@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/mobiboss_models.dart';
 import '../providers/mobiboss_provider.dart';
 import '../services/receipt_service.dart';
+import '../widgets/top_toast.dart';
 import 'shift_handover_screen.dart';
 
 class ReconciliationScreen extends StatefulWidget {
@@ -813,7 +814,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                         icon: const Icon(Icons.delete_outline_rounded, size: 14, color: Colors.grey),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
-                        onPressed: () => provider.deletePettyCashExpense(exp.id),
+                        onPressed: () => _confirmDeletePettyCash(context, provider, exp),
                       ),
                     ],
                   ),
@@ -822,6 +823,70 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  void _confirmDeletePettyCash(BuildContext context, MoMoProvider provider, PettyCashExpense exp) {
+    final pinCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFD93025), size: 22),
+            SizedBox(width: 8),
+            Text('Delete Petty Cash Entry', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Delete GHS ${exp.amount.toStringAsFixed(2)} (${exp.category.name}) from logged shop expenses?',
+              style: const TextStyle(fontSize: 12),
+            ),
+            if (provider.tellers.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              TextField(
+                controller: pinCtrl,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Supervisor / Attendant PIN',
+                  hintText: '4-digit PIN',
+                  prefixIcon: Icon(Icons.lock_rounded, size: 18),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD93025)),
+            onPressed: () {
+              if (provider.tellers.isNotEmpty && !provider.verifyTellerPin(pinCtrl.text.trim())) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Invalid PIN. Action denied.')),
+                );
+                return;
+              }
+              provider.deletePettyCashExpense(exp.id);
+              Navigator.pop(ctx);
+              TopToast.show(
+                context,
+                title: 'Petty Cash Removed',
+                message: 'Expense of GHS ${exp.amount.toStringAsFixed(2)} was removed.',
+                icon: Icons.delete_outline_rounded,
+                backgroundColor: const Color(0xFF5F6368),
+              );
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }

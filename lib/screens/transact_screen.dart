@@ -463,79 +463,262 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
           ),
           const SizedBox(height: 18),
 
-          // 6. Action Button: 1-Tap Auto-Initiate & Record
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: const Color(0xFF1A73E8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            icon: const Icon(Icons.play_arrow_rounded),
-            label: const Text(
-              'Initiate Automated USSD Session',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-            ),
-            onPressed: () async {
-              if (amount <= 0 || _phoneController.text.length < 9) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter a valid phone number and amount')),
-                );
-                return;
-              }
+          // 6. Dual Action Buttons: USSD Auto-Initiate OR Direct Offline Record
+          Row(
+            children: [
+              Expanded(
+                flex: 6,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    backgroundColor: const Color(0xFF1A73E8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.bolt_rounded, size: 20),
+                  label: const Text(
+                    'Execute USSD',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () async {
+                    if (amount <= 0 || _phoneController.text.length < 9) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please enter a valid phone number and amount')),
+                      );
+                      return;
+                    }
 
-              if (!provider.isAccessibilityEnabled) {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Accessibility Service Required'),
-                    content: const Text(
-                      'The USSD Auto-Navigation service must be enabled in Android Accessibility Settings '
-                      'so MobiBoss can auto-fill menus up to the PIN prompt.\n\n'
-                      'Look for "MobiBoss" in the list and enable it.',
-                    ),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                      FilledButton(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          UssdService.openAccessibilitySettings();
-                        },
-                        child: const Text('Open Settings'),
-                      ),
+                    if (!provider.isAccessibilityEnabled) {
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Accessibility Service Required'),
+                          content: const Text(
+                            'The USSD Auto-Navigation service must be enabled in Android Accessibility Settings '
+                            'so MobiBoss can auto-fill menus up to the PIN prompt.\n\n'
+                            'Look for "MobiBoss" in the list and enable it.',
+                          ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+                            FilledButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                UssdService.openAccessibilitySettings();
+                              },
+                              child: const Text('Open Settings'),
+                            ),
+                          ],
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Record as pending in ledger
+                    await provider.recordPendingUssdTransaction(
+                      till: activeTill,
+                      type: _selectedType,
+                      amount: amount,
+                      customerPhone: _phoneController.text.trim(),
+                      ussdCode: plan.rootCode,
+                    );
+
+                    if (context.mounted) {
+                      TopToast.show(
+                        context,
+                        title: 'USSD Session in Progress',
+                        message: 'Auto-navigating ${plan.steps.length} steps on ${activeTill.network.name.toUpperCase()}... Pause at PIN.',
+                        icon: Icons.bolt_rounded,
+                        backgroundColor: const Color(0xFF1A73E8),
+                      );
+                    }
+
+                    // Trigger automated multi-step USSD session
+                    if (_useCrossNetworkMmi && isCrossNetwork) {
+                      await UssdService.initiateCustomAutomatedSession(
+                        rootCode: plan.rootCode,
+                        steps: plan.steps,
+                        fallbackShortCode: plan.displayShortCode,
+                        simSlot: activeTill.simSlot.contains('2') ? 1 : 0,
+                      );
+                    } else {
+                      await UssdService.initiateAutomatedSession(
+                        till: activeTill,
+                        type: _selectedType,
+                        customerPhone: _phoneController.text,
+                        amount: amount,
+                      );
+                    }
+
+                    _amountController.clear();
+                    _phoneController.clear();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 5,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    side: const BorderSide(color: Color(0xFF1A73E8), width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.edit_note_rounded, size: 20, color: Color(0xFF1A73E8)),
+                  label: const Text(
+                    'Record Only',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8)),
+                  ),
+                  onPressed: () {
+                    if (amount <= 0 || _phoneController.text.length < 9) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please enter a valid phone number and amount')),
+                      );
+                      return;
+                    }
+                    _showDirectRecordModal(context, provider, activeTill, amount, _phoneController.text.trim(), _selectedType);
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Quick Sync SMS banner button
+          Center(
+            child: TextButton.icon(
+              icon: const Icon(Icons.sync_rounded, size: 16, color: Color(0xFF5F6368)),
+              label: const Text(
+                'Sync Telco Confirmation SMS',
+                style: TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+              ),
+              onPressed: () async {
+                final count = await provider.syncRecentSms();
+                if (context.mounted) {
+                  TopToast.show(
+                    context,
+                    title: count > 0 ? 'SMS Sync Complete' : 'Up to Date',
+                    message: count > 0 ? 'Reconciled $count incoming telecom messages.' : 'No new MoMo confirmation SMS found.',
+                    icon: count > 0 ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                    backgroundColor: count > 0 ? const Color(0xFF1E8E3E) : const Color(0xFF5F6368),
+                  );
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDirectRecordModal(
+    BuildContext context,
+    MoMoProvider provider,
+    Till till,
+    double amount,
+    String phone,
+    TransactionType type,
+  ) {
+    final refCtrl = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.receipt_long_rounded, color: Color(0xFF1A73E8), size: 22),
+            SizedBox(width: 8),
+            Text('Confirm Direct Record', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Record transaction directly into ledger without dialing USSD. '
+              'Used when transacting on a secondary button phone or manual POS.',
+              style: TextStyle(fontSize: 12, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368)),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Type:', style: TextStyle(fontSize: 12)),
+                      Text(type == TransactionType.cashIn ? 'Cash In' : type == TransactionType.cashOut ? 'Cash Out' : 'Airtime', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                     ],
                   ),
-                );
-                return;
-              }
-
-              TopToast.show(
-                context,
-                title: 'USSD Session in Progress',
-                message: 'Auto-navigating ${plan.steps.length} steps on ${activeTill.network.name.toUpperCase()}... Pause at PIN.',
-                icon: Icons.bolt_rounded,
-                backgroundColor: const Color(0xFF1A73E8),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Customer:', style: TextStyle(fontSize: 12)),
+                      Text(phone, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Amount:', style: TextStyle(fontSize: 12)),
+                      Text('GHS ${provider.formatAmount(amount)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A73E8))),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Till / SIM:', style: TextStyle(fontSize: 12)),
+                      Text('${till.tillName} (${till.network.name.toUpperCase()})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: refCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Telco Reference (Optional)',
+                hintText: 'e.g. 24891823901',
+                prefixIcon: Icon(Icons.tag_rounded, size: 18),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final tx = await provider.recordDirectTransaction(
+                till: till,
+                type: type,
+                amount: amount,
+                customerPhone: phone,
+                reference: refCtrl.text.trim().isNotEmpty ? refCtrl.text.trim() : null,
               );
-
-              // 1. Trigger automated multi-step USSD session
-              if (_useCrossNetworkMmi && isCrossNetwork) {
-                await UssdService.initiateCustomAutomatedSession(
-                  rootCode: plan.rootCode,
-                  steps: plan.steps,
-                  fallbackShortCode: plan.displayShortCode,
-                  simSlot: activeTill.simSlot.contains('2') ? 1 : 0,
-                );
-              } else {
-                await UssdService.initiateAutomatedSession(
-                  till: activeTill,
-                  type: _selectedType,
-                  customerPhone: _phoneController.text,
-                  amount: amount,
-                );
-              }
 
               _amountController.clear();
               _phoneController.clear();
+
+              if (context.mounted) {
+                TopToast.show(
+                  context,
+                  title: 'Transaction Recorded',
+                  message: '${tx.type.name.toUpperCase()} GHS ${provider.formatAmount(tx.amount)} recorded to ${till.tillName}.',
+                  icon: Icons.check_circle_rounded,
+                  backgroundColor: const Color(0xFF1E8E3E),
+                );
+              }
             },
+            child: const Text('Save to Ledger'),
           ),
         ],
       ),
