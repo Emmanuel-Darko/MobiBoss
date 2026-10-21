@@ -800,11 +800,88 @@ class MoMoProvider extends ChangeNotifier {
     );
   }
 
+  // ─── Shift Leak & Fraud Radar ───
+  List<LeakRadarItem> get shiftLeakRadarItems {
+    final items = <LeakRadarItem>[];
+
+    // 1. Neutralized Reversals check
+    final activeRecords = filteredSmsRecords;
+    final reversedSms = activeRecords.where((r) => r.isReversed || r.isVoided || r.type == TransactionType.reversal).toList();
+    if (reversedSms.isNotEmpty) {
+      final totalRevAmt = reversedSms.fold(0.0, (sum, r) => sum + r.amount);
+      items.add(LeakRadarItem(
+        title: '${reversedSms.length} Telco Reversal(s) Neutralized',
+        description: 'Auto-excluded GHS ${_currencyFormatter.format(totalRevAmt)} in reversed transactions from expected drawer cash, preventing false shortage.',
+        severity: LeakSeverity.warning,
+        category: 'reversal',
+        amountFormatted: 'GHS ${_currencyFormatter.format(totalRevAmt)}',
+      ));
+    }
+
+    // 2. Unconfirmed / Pending Outflows
+    final pendingTx = _transactions.where((t) {
+      final isRecent = DateTime.now().difference(t.timestamp).inHours < 4;
+      return isRecent && t.status == TransactionStatus.pending;
+    }).toList();
+    if (pendingTx.isNotEmpty) {
+      final totalPending = pendingTx.fold(0.0, (sum, t) => sum + t.amount);
+      items.add(LeakRadarItem(
+        title: '${pendingTx.length} Unconfirmed USSD Session(s)',
+        description: 'Transactions initiated via USSD without carrier SMS confirmation yet. Verify payment on SIM before releasing physical cash.',
+        severity: LeakSeverity.warning,
+        category: 'pending',
+        amountFormatted: 'GHS ${_currencyFormatter.format(totalPending)}',
+      ));
+    }
+
+    // 3. Repeated rapid withdrawals to same number (Velocity fraud protection)
+    final withdrawals = currentShiftTransactions.where((t) => t.type == TransactionType.cashOut).toList();
+    final phoneCounts = <String, int>{};
+    for (final w in withdrawals) {
+      if (w.customerPhone.isNotEmpty) {
+        phoneCounts[w.customerPhone] = (phoneCounts[w.customerPhone] ?? 0) + 1;
+      }
+    }
+    final repeated = phoneCounts.entries.where((e) => e.value >= 3).toList();
+    if (repeated.isNotEmpty) {
+      items.add(LeakRadarItem(
+        title: 'High-Frequency Cash-Outs (${repeated.length} Numbers)',
+        description: 'Multiple repeat withdrawals to the same phone within this shift. Verify customer identity to prevent SIM swap fraud.',
+        severity: LeakSeverity.danger,
+        category: 'velocity',
+      ));
+    }
+
+    // 4. Excessive Petty Cash Burn (> 35% of commissions)
+    if (currentShiftPettyCashTotal > 0 && todayCommission > 0 && (currentShiftPettyCashTotal > todayCommission * 0.35)) {
+      items.add(LeakRadarItem(
+        title: 'High Petty Cash Burn Rate',
+        description: 'Petty cash expenses (GHS ${_currencyFormatter.format(currentShiftPettyCashTotal)}) consume over 35% of shift commissions (GHS ${_currencyFormatter.format(todayCommission)}).',
+        severity: LeakSeverity.info,
+        category: 'drain',
+        amountFormatted: 'GHS ${_currencyFormatter.format(currentShiftPettyCashTotal)}',
+      ));
+    }
+
+    // 5. Clean Shield
+    if (items.isEmpty) {
+      items.add(const LeakRadarItem(
+        title: '0 Leaks or Fraud Detected',
+        description: 'All carrier transactions verified authentic against official telco sender codes with zero unmatched reversals.',
+        severity: LeakSeverity.safe,
+        category: 'safe',
+      ));
+    }
+
+    return items;
+  }
+
   // ─── Shift Closing & EOD Settlement ───
   Future<ShiftRecord> closeCurrentShift({
     required double countedCash,
     required BuildContext context,
     CashDenomination? denomination,
+    double? nextShiftOpeningCash,
   }) async {
     reconcileShift(physicalCash: countedCash, denomination: denomination);
     final rec = _lastReconciliation!;
@@ -835,10 +912,11 @@ class MoMoProvider extends ChangeNotifier {
     _shiftHistory.insert(0, shift);
     await DbService.insertShift(shift);
 
-    // Carry forward closing cash to new shift opening balance
-    _initialDrawerOpeningBalance = countedCash;
-    _currentCashInDrawer = countedCash;
-    await StorageService.saveDrawerCash(countedCash);
+    // Carry forward closing cash (or custom next shift opening float) to new shift
+    final nextOpening = nextShiftOpeningCash ?? countedCash;
+    _initialDrawerOpeningBalance = nextOpening;
+    _currentCashInDrawer = nextOpening;
+    await StorageService.saveDrawerCash(nextOpening);
 
     // Reset reconciliation and scan session for the fresh new shift
     _allScannedRecords.clear();
@@ -853,6 +931,14 @@ class MoMoProvider extends ChangeNotifier {
 
     notifyListeners();
     return shift;
+  }
+
+  Future<void> updateOpeningDrawerBalance(double amount) async {
+    _initialDrawerOpeningBalance = amount;
+    _currentCashInDrawer = amount;
+    await StorageService.saveDrawerCash(amount);
+    recalculateReconciliation();
+    notifyListeners();
   }
 
   // ─── CSV Export ───

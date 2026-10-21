@@ -199,23 +199,35 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                   ),
                 ],
               ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: const Icon(Icons.history_rounded, size: 16),
-                label: Text(
-                  'History (${provider.shiftHistory.length})',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const ShiftHistoryScreen(),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Adjust Opening Float (GHS ${_currencyFormatter.format(provider.initialDrawerOpeningBalance)})',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    icon: const Icon(Icons.edit_note_rounded, size: 20, color: Color(0xFF1A73E8)),
+                    onPressed: () => _showEditOpeningFloatDialog(context, provider),
+                  ),
+                  const SizedBox(width: 4),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                  );
-                },
+                    icon: const Icon(Icons.history_rounded, size: 16),
+                    label: Text(
+                      'History (${provider.shiftHistory.length})',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const ShiftHistoryScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             ],
           ),
@@ -285,6 +297,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
             DenominationCounterWidget(
               initialDenomination: provider.cashDenomination,
               currentTotal: provider.currentCashInDrawer,
+              expectedTotal: provider.expectedDrawerCash,
               onDenominationChanged: (denom) {
                 HapticFeedback.selectionClick();
                 provider.updateCashDenomination(denom);
@@ -427,7 +440,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                     children: [
                       Text(
                         !isCalculated
-                            ? 'AWAITING DRAWER COUNT'
+                            ? 'AWAITING CASH COUNT'
                             : isBalanced
                                 ? 'BALANCED DRAWER'
                                 : '${result.status}: GHS ${_currencyFormatter.format(result.cashVariance.abs())}',
@@ -439,7 +452,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                       ),
                       Text(
                         !isCalculated
-                            ? 'Enter physical cash in Step 2 to compute live variance'
+                            ? 'Expected in drawer: GHS ${_currencyFormatter.format(provider.expectedDrawerCash)} • Enter count below'
                             : isBalanced
                                 ? 'Physical cash matches all POS inflows, outflows & float'
                                 : isShortage
@@ -461,26 +474,49 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                   ),
               ],
             ),
-            if (isCalculated) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF1E2022) : Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Expected Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
-                          Text('GHS ${_currencyFormatter.format(result.expectedPhysicalCash)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                        ],
-                      ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E2022) : Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Expected Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+                        Text(
+                          'GHS ${_currencyFormatter.format(isCalculated ? result.expectedPhysicalCash : provider.expectedDrawerCash)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                        ),
+                      ],
                     ),
                   ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E2022) : Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Counted Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+                        Text(
+                          isCalculated ? 'GHS ${_currencyFormatter.format(result.physicalCashCount)}' : 'Not Counted',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: isCalculated ? statusColor : Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (isCalculated) ...[
                   const SizedBox(width: 6),
                   Expanded(
                     child: Container(
@@ -492,15 +528,18 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Counted Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
-                          Text('GHS ${_currencyFormatter.format(result.physicalCashCount)}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: statusColor)),
+                          Text('Live Variance', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+                          Text(
+                            '${result.cashVariance >= 0 ? "+" : "-"}GHS ${_currencyFormatter.format(result.cashVariance.abs())}',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: statusColor),
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ],
-              ),
-            ],
+              ],
+            ),
           ],
         ),
       ),
@@ -1260,68 +1299,150 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
     );
   }
 
-  void _showShiftCloseDialog(BuildContext context, MoMoProvider provider) {
-    final counted = provider.currentCashInDrawer;
+  void _showEditOpeningFloatDialog(BuildContext context, MoMoProvider provider) {
+    final ctrl = TextEditingController(text: provider.initialDrawerOpeningBalance.toStringAsFixed(2));
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.verified_rounded, color: Color(0xFF1E8E3E), size: 22),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                'Complete Shift #${provider.currentShiftNumber}',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
+        title: const Text('Adjust Shift Opening Float', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Your shift audit will be saved, and your final counted cash will automatically become the opening float for your next shift.',
+              'Change the cash you started this shift with. This will instantly recalculate your expected drawer cash and live variance.',
               style: TextStyle(fontSize: 12),
             ),
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A73E8).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Counted Cash to Carry Forward:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                  Text(
-                    'GHS ${_currencyFormatter.format(counted)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A73E8)),
-                  ),
-                ],
+            TextField(
+              controller: ctrl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: 'Opening Drawer Float (GHS)',
+                prefixText: 'GHS ',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
               ),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Back')),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1E8E3E)),
-            icon: const Icon(Icons.check_circle_rounded, size: 16),
-            label: const Text('Confirm & Settle Shift'),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
             onPressed: () async {
-              Navigator.pop(ctx);
-              final shift = await provider.closeCurrentShift(countedCash: counted, context: context);
-              if (!mounted) return;
-              _showPostCloseSettlementSheet(this.context, shift);
+              final val = double.tryParse(ctrl.text.trim());
+              if (val != null && val >= 0) {
+                await provider.updateOpeningDrawerBalance(val);
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (context.mounted) {
+                  TopToast.show(
+                    context,
+                    title: 'Opening Float Updated',
+                    message: 'Shift opening balance set to GHS ${_currencyFormatter.format(val)}',
+                    icon: Icons.check_circle_rounded,
+                    backgroundColor: const Color(0xFF1E8E3E),
+                  );
+                }
+              }
             },
+            child: const Text('Update Float'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showShiftCloseDialog(BuildContext context, MoMoProvider provider) {
+    final counted = provider.currentCashInDrawer;
+    final nextOpeningCtrl = TextEditingController(text: counted.toStringAsFixed(2));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                const Icon(Icons.verified_rounded, color: Color(0xFF1E8E3E), size: 22),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Complete Shift #${provider.currentShiftNumber}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Your shift audit will be saved to your permanent shift ledger.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A73E8).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Closing Drawer Cash:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                        Text(
+                          'GHS ${_currencyFormatter.format(counted)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A73E8)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Opening Cash Float for Next Shift:',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: nextOpeningCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: InputDecoration(
+                      prefixText: 'GHS ',
+                      helperText: 'Defaults to closing cash. Change if depositing part of float to bank.',
+                      helperMaxLines: 2,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Back')),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1E8E3E)),
+                icon: const Icon(Icons.check_circle_rounded, size: 16),
+                label: const Text('Confirm & Settle Shift'),
+                onPressed: () async {
+                  final nextOpening = double.tryParse(nextOpeningCtrl.text.trim()) ?? counted;
+                  Navigator.pop(ctx);
+                  final shift = await provider.closeCurrentShift(
+                    countedCash: counted,
+                    context: context,
+                    nextShiftOpeningCash: nextOpening,
+                  );
+                  if (!mounted) return;
+                  _showPostCloseSettlementSheet(this.context, shift);
+                },
+              ),
+            ],
+          );
+        },
       ),
     );
   }

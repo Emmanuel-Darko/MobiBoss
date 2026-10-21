@@ -997,3 +997,22 @@ class BluetoothPrinterInfo {
       );
 }
 
+enum LeakSeverity { safe, info, warning, danger }
+
+class LeakRadarItem {
+  final String title;
+  final String description;
+  final LeakSeverity severity;
+  final String category; // 'reversal', 'pending', 'velocity', 'drain', 'safe'
+  final String? amountFormatted;
+
+  const LeakRadarItem({
+    required this.title,
+    required this.description,
+    required this.severity,
+    required this.category,
+    this.amountFormatted,
+  });
+}
+
+

@@ -238,6 +238,10 @@ class ReconciliationDashboardWidget extends StatelessWidget {
             ),
             const SizedBox(height: 12),
 
+            // ─── Leak & Fraud Radar (AI Guard) ───
+            _buildLeakRadar(context, provider.shiftLeakRadarItems, isDark),
+            const SizedBox(height: 12),
+
             // ─── Network Carrier Breakdown ───
             if (result.networkBreakdown != null && result.networkBreakdown!.isNotEmpty) ...[
               _buildNetworkBreakdown(context, result.networkBreakdown!, isDark),
@@ -497,6 +501,149 @@ class ReconciliationDashboardWidget extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLeakRadar(
+    BuildContext context,
+    List<LeakRadarItem> items,
+    bool isDark,
+  ) {
+    final hasWarning = items.any((i) => i.severity == LeakSeverity.warning || i.severity == LeakSeverity.danger);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E2022) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: hasWarning
+              ? const Color(0xFFE37400).withValues(alpha: 0.5)
+              : (isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    hasWarning ? Icons.shield_rounded : Icons.verified_user_rounded,
+                    size: 16,
+                    color: hasWarning ? const Color(0xFFE37400) : const Color(0xFF1E8E3E),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Leak & Fraud Radar (AI Guard)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: hasWarning
+                          ? const Color(0xFFE37400)
+                          : (isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E)),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: (hasWarning ? const Color(0xFFE37400) : const Color(0xFF1E8E3E)).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  hasWarning ? '${items.where((i) => i.severity != LeakSeverity.safe).length} FLAG(S)' : 'ALL SECURE',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: hasWarning ? const Color(0xFFE37400) : const Color(0xFF1E8E3E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...items.map((item) {
+            final Color itemColor;
+            final IconData itemIcon;
+            switch (item.severity) {
+              case LeakSeverity.danger:
+                itemColor = const Color(0xFFD93025);
+                itemIcon = Icons.warning_rounded;
+                break;
+              case LeakSeverity.warning:
+                itemColor = const Color(0xFFE37400);
+                itemIcon = item.category == 'reversal' ? Icons.replay_rounded : Icons.hourglass_top_rounded;
+                break;
+              case LeakSeverity.info:
+                itemColor = const Color(0xFF1A73E8);
+                itemIcon = Icons.info_outline_rounded;
+                break;
+              case LeakSeverity.safe:
+                itemColor = const Color(0xFF1E8E3E);
+                itemIcon = Icons.check_circle_outline_rounded;
+                break;
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: itemColor.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: itemColor.withValues(alpha: 0.2)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(itemIcon, size: 14, color: itemColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              item.title,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : const Color(0xFF202124),
+                              ),
+                            ),
+                            if (item.amountFormatted != null)
+                              Text(
+                                item.amountFormatted!,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: itemColor,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          item.description,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 }

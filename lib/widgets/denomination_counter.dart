@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/mobiboss_models.dart';
 
 class DenominationCounterWidget extends StatefulWidget {
   final CashDenomination initialDenomination;
   final double currentTotal;
+  final double? expectedTotal;
   final ValueChanged<CashDenomination> onDenominationChanged;
   final ValueChanged<double> onDirectTotalChanged;
 
@@ -13,6 +15,7 @@ class DenominationCounterWidget extends StatefulWidget {
     super.key,
     required this.initialDenomination,
     required this.currentTotal,
+    this.expectedTotal,
     required this.onDenominationChanged,
     required this.onDirectTotalChanged,
   });
@@ -122,6 +125,14 @@ class _DenominationCounterWidgetState extends State<DenominationCounterWidget> {
       _quickCashController.text = updated.total.toStringAsFixed(2);
     });
     widget.onDenominationChanged(updated);
+  }
+
+  void _addQuickCash(double delta) {
+    HapticFeedback.selectionClick();
+    final cur = double.tryParse(_quickCashController.text) ?? 0.0;
+    final next = cur + delta;
+    _quickCashController.text = next.toStringAsFixed(2);
+    _commitQuickCash();
   }
 
   void _clearAll() {
@@ -307,6 +318,51 @@ class _DenominationCounterWidgetState extends State<DenominationCounterWidget> {
                   _debounceTimer?.cancel();
                   _debounceTimer = Timer(const Duration(milliseconds: 700), _commitQuickCash);
                 },
+              ),
+              const SizedBox(height: 8),
+
+              // Quick Shortcut Pills
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (widget.expectedTotal != null && widget.expectedTotal! > 0)
+                    ActionChip(
+                      avatar: const Icon(Icons.auto_fix_high_rounded, size: 14, color: Color(0xFF1E8E3E)),
+                      label: Text(
+                        'Match Expected: GHS ${_currencyFormatter.format(widget.expectedTotal)}',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E8E3E)),
+                      ),
+                      backgroundColor: const Color(0xFF1E8E3E).withValues(alpha: 0.12),
+                      side: BorderSide(color: const Color(0xFF1E8E3E).withValues(alpha: 0.3)),
+                      onPressed: () {
+                        HapticFeedback.mediumImpact();
+                        _quickCashController.text = widget.expectedTotal!.toStringAsFixed(2);
+                        _commitQuickCash();
+                      },
+                    ),
+                  ActionChip(
+                    label: const Text('+50', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+                    onPressed: () => _addQuickCash(50),
+                  ),
+                  ActionChip(
+                    label: const Text('+100', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+                    onPressed: () => _addQuickCash(100),
+                  ),
+                  ActionChip(
+                    label: const Text('+200', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+                    onPressed: () => _addQuickCash(200),
+                  ),
+                  ActionChip(
+                    avatar: const Icon(Icons.clear_rounded, size: 12),
+                    label: const Text('Clear', style: TextStyle(fontSize: 10)),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      _quickCashController.clear();
+                      _commitQuickCash();
+                    },
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
 
