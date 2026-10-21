@@ -161,60 +161,71 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
         children: [
           // ─── Top Shift Header & History Action ───
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A73E8).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'Shift #${provider.currentShiftNumber}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Color(0xFF1A73E8),
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A73E8).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Audit & Settlement',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                      Text(
-                        'Started ${DateFormat('hh:mm a').format(provider.currentShiftStartTime)} • ${provider.shiftElapsedTimeDisplay}',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                      child: Text(
+                        'Shift #${provider.currentShiftNumber}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: Color(0xFF1A73E8),
                         ),
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Audit & Settlement',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'Started ${DateFormat('hh:mm a').format(provider.currentShiftStartTime)} • ${provider.shiftElapsedTimeDisplay}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 6),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     tooltip: 'Adjust Opening Float (GHS ${_currencyFormatter.format(provider.initialDrawerOpeningBalance)})',
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                     icon: const Icon(Icons.edit_note_rounded, size: 20, color: Color(0xFF1A73E8)),
                     onPressed: () => _showEditOpeningFloatDialog(context, provider),
                   ),
                   const SizedBox(width: 4),
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      visualDensity: VisualDensity.compact,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    icon: const Icon(Icons.history_rounded, size: 16),
+                    icon: const Icon(Icons.history_rounded, size: 14),
                     label: Text(
                       'History (${provider.shiftHistory.length})',
                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
@@ -488,9 +499,13 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Expected Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
-                        Text(
-                          'GHS ${_currencyFormatter.format(isCalculated ? result.expectedPhysicalCash : provider.expectedDrawerCash)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'GHS ${_currencyFormatter.format(isCalculated ? result.expectedPhysicalCash : provider.expectedDrawerCash)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                          ),
                         ),
                       ],
                     ),
@@ -508,9 +523,13 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Counted Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
-                        Text(
-                          isCalculated ? 'GHS ${_currencyFormatter.format(result.physicalCashCount)}' : 'Not Counted',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: isCalculated ? statusColor : Colors.grey),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            isCalculated ? 'GHS ${_currencyFormatter.format(result.physicalCashCount)}' : 'Not Counted',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: isCalculated ? statusColor : Colors.grey),
+                          ),
                         ),
                       ],
                     ),
@@ -529,9 +548,13 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> with Automa
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('Live Variance', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
-                          Text(
-                            '${result.cashVariance >= 0 ? "+" : "-"}GHS ${_currencyFormatter.format(result.cashVariance.abs())}',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: statusColor),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '${result.cashVariance >= 0 ? "+" : "-"}GHS ${_currencyFormatter.format(result.cashVariance.abs())}',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: statusColor),
+                            ),
                           ),
                         ],
                       ),
