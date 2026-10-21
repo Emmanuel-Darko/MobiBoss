@@ -15,6 +15,8 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _profile;
   RealtimeChannel? _profileChannel;
   bool _isInitialized = false;
+  bool _isClockTampered = false;
+  String? _deviceId;
 
   // ─── Public Getters ───
   User? get user => _user;
@@ -22,11 +24,15 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? get profile => _profile;
   bool get isLoggedIn => _user != null;
   bool get isInitialized => _isInitialized;
+  bool get isClockTampered => _isClockTampered;
+  String? get deviceId => _deviceId;
 
-  /// True if user has reconciliation access (active subscription OR live trial).
+  /// True if user has reconciliation access (active subscription OR live trial)
+  /// and device clock has not been tampered.
   bool get hasReconciliationAccess =>
-      _subState == SubscriptionState.active ||
-      _subState == SubscriptionState.trial;
+      !_isClockTampered &&
+      (_subState == SubscriptionState.active ||
+       _subState == SubscriptionState.trial);
 
   /// Days remaining on the trial / subscription (0 if expired).
   int get daysRemaining =>
@@ -89,12 +95,43 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _loadSubscription() async {
     final prevState = _subState;
     _subState = SubscriptionState.loading;
-    // Only notify if we transitioned — avoids unnecessary rebuilds on init
     if (prevState != SubscriptionState.loading) notifyListeners();
 
+    _deviceId ??= await SupabaseService.getDeviceId();
+
+    // 1. Hardware Device Fingerprint verification via Supabase RPC
+    if (_deviceId != null && _deviceId != 'unknown_device') {
+      final deviceResult = await SupabaseService.claimOrVerifyDeviceTrial(_deviceId!);
+      if (deviceResult != null) {
+        final serverTimeStr = deviceResult['server_time'] as String?;
+        if (serverTimeStr != null) {
+          final serverTime = DateTime.tryParse(serverTimeStr);
+          if (serverTime != null) {
+            _isClockTampered = await SupabaseService.isClockTampered(serverTime);
+          }
+        }
+
+        final isAllowed = deviceResult['is_allowed'] == true;
+        final status = (deviceResult['status'] ?? 'expired').toString();
+
+        if (!isAllowed || status == 'expired' || _isClockTampered) {
+          _subState = SubscriptionState.expired;
+        } else {
+          _subState = status == 'trial' ? SubscriptionState.trial : SubscriptionState.active;
+        }
+
+        _profile = await SupabaseService.fetchProfile();
+        notifyListeners();
+        return;
+      }
+    }
+
+    // 2. Standard Profile fallback if RPC is not yet applied on Supabase
     _profile = await SupabaseService.fetchProfile();
     if (_profile == null) {
-      _subState = SubscriptionState.expired;
+      // 3. Network unreachable: check if 48-hour offline lease is still valid
+      final leaseValid = await SupabaseService.isOfflineLeaseValid();
+      _subState = leaseValid ? SubscriptionState.active : SubscriptionState.expired;
     } else {
       final active = SupabaseService.isSubscriptionActive(_profile!);
       final isTrial = _profile!['subscription_status'] == 'trial';
@@ -103,6 +140,13 @@ class AuthProvider extends ChangeNotifier {
           : SubscriptionState.expired;
     }
     notifyListeners();
+  }
+
+  /// Dynamically verifies subscription on landing on the Reconcile tab
+  Future<void> verifyAccessOnLanding() async {
+    if (_user != null) {
+      await _loadSubscription();
+    }
   }
 
   void _listenToProfileRealtime() {

@@ -82,6 +82,29 @@ class MainActivity : FlutterFragmentActivity() {
                     )
                     result.success(true)
                 }
+                "getDeviceId" -> {
+                    try {
+                        val androidId = Settings.Secure.getString(
+                            contentResolver,
+                            Settings.Secure.ANDROID_ID
+                        ) ?: "unknown_device"
+                        result.success(androidId)
+                    } catch (e: Exception) {
+                        result.error("DEVICE_ID_ERROR", e.message, null)
+                    }
+                }
+                "getSystemClockInfo" -> {
+                    try {
+                        val elapsedRealtime = android.os.SystemClock.elapsedRealtime()
+                        val currentTimeMillis = System.currentTimeMillis()
+                        result.success(mapOf(
+                            "elapsedRealtime" to elapsedRealtime,
+                            "currentTimeMillis" to currentTimeMillis
+                        ))
+                    } catch (e: Exception) {
+                        result.error("CLOCK_INFO_ERROR", e.message, null)
+                    }
+                }
                 "initiateMultiStepUssd" -> {
                     val rootCode = call.argument<String>("rootCode") ?: "*171#"
                     val steps = call.argument<List<String>>("steps") ?: emptyList()

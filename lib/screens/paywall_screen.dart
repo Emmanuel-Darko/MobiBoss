@@ -19,7 +19,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
   Future<void> _openSubscribePage(String email) async {
     final uri = Uri.parse(
-        'https://mobiboss.com/subscribe?email=${Uri.encodeComponent(email)}');
+        'https://mobiboss.kodetechgh.com/subscribe?email=${Uri.encodeComponent(email)}');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -85,6 +85,31 @@ class _PaywallScreenState extends State<PaywallScreen> {
               ),
             ),
             const SizedBox(height: 14),
+
+            // ── Clock Tampering Alert ──
+            if (auth.isClockTampered) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD93025).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFD93025)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Color(0xFFD93025)),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Device Clock Mismatch: Your phone date/time was set backwards. Please enable Automatic Network Time in Android Settings.',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFD93025)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             // ── Badge ──
             Container(
@@ -231,7 +256,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                   onPressed: () => _openSubscribePage(userEmail),
                   icon: const Icon(Icons.open_in_browser_rounded, size: 18),
                   label: const Text(
-                    'Subscribe on MobiBoss.com',
+                    'Subscribe on MobiBoss.kodetechgh.com',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                   ),
                   style: FilledButton.styleFrom(

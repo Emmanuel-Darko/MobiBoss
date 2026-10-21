@@ -333,7 +333,13 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        onDestinationSelected: (index) {
+          if (index == 1) {
+            // Reconcile tab: trigger background anti-abuse device & subscription check
+            context.read<AuthProvider>().verifyAccessOnLanding();
+          }
+          setState(() => _currentIndex = index);
+        },
         indicatorColor: const Color(0xFFD2E3FC),
         height: 68,
         destinations: const [
