@@ -40,14 +40,22 @@ void main() async {
 class MobiBossApp extends StatelessWidget {
   const MobiBossApp({super.key});
 
+  static final _lightTextTheme = GoogleFonts.plusJakartaSansTextTheme(
+    ThemeData.light().textTheme,
+  );
+  static final _darkTextTheme = GoogleFonts.plusJakartaSansTextTheme(
+    ThemeData.dark().textTheme,
+  );
+
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<MoMoProvider>();
+    final themeMode = context.select<MoMoProvider, ThemeMode>((p) => p.themeMode);
+    final hasCompletedOnboarding = context.select<MoMoProvider, bool>((p) => p.hasCompletedOnboarding);
 
     return MaterialApp(
       title: 'MobiBoss',
       debugShowCheckedModeBanner: false,
-      themeMode: provider.themeMode,
+      themeMode: themeMode,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
@@ -58,9 +66,7 @@ class MobiBossApp extends StatelessWidget {
           primary: const Color(0xFF1A73E8),
           surface: Colors.white,
         ),
-        textTheme: GoogleFonts.plusJakartaSansTextTheme(
-          ThemeData.light().textTheme,
-        ),
+        textTheme: _lightTextTheme,
         appBarTheme: const AppBarTheme(
           centerTitle: false,
           elevation: 0,
@@ -97,9 +103,7 @@ class MobiBossApp extends StatelessWidget {
           primary: const Color(0xFF8AB4F8),
           surface: const Color(0xFF1E1E1E),
         ),
-        textTheme: GoogleFonts.plusJakartaSansTextTheme(
-          ThemeData.dark().textTheme,
-        ),
+        textTheme: _darkTextTheme,
         appBarTheme: const AppBarTheme(
           centerTitle: false,
           elevation: 0,
@@ -126,7 +130,7 @@ class MobiBossApp extends StatelessWidget {
           ),
         ),
       ),
-      home: provider.hasCompletedOnboarding
+      home: hasCompletedOnboarding
           ? const MainNavigationShell()
           : const OnboardingScreen(),
     );
@@ -323,7 +327,10 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
           ),
         ],
       ),
-      body: screens[_currentIndex],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: screens,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) => setState(() => _currentIndex = index),

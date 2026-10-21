@@ -889,9 +889,7 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
       amount: parsedAmount,
     );
 
-    if (success) {
-      _clearFields();
-    } else {
+    if (!success) {
       if (mounted) {
         TopToast.show(
           context,
