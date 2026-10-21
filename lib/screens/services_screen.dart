@@ -85,6 +85,29 @@ class _ServicesScreenState extends State<ServicesScreen> {
     final provider = context.watch<MoMoProvider>();
     final activeTill = provider.selectedTill;
     final amount = double.tryParse(_amountController.text) ?? 0.0;
+    String? extraParam;
+    if (_serviceType == TransactionType.dataBundle) {
+      extraParam = _selectedDataTier;
+    } else if (_serviceType == TransactionType.bankTransfer) {
+      const bankMap = {
+        'GCB Bank': '1',
+        'Ecobank': '2',
+        'Fidelity Bank': '3',
+        'Stanbic Bank': '4',
+        'Absa Bank': '5',
+        'Zenith Bank': '6',
+      };
+      extraParam = bankMap[_selectedBank] ?? '1';
+    } else if (_serviceType == TransactionType.payTv) {
+      const tvMap = {
+        'DSTV': '1',
+        'GOTV': '2',
+        'STARTIMES': '3',
+      };
+      extraParam = tvMap[_selectedPayTvProvider] ?? '1';
+    } else if (_extraController.text.isNotEmpty) {
+      extraParam = _extraController.text;
+    }
     final target = _targetController.text.isEmpty ? '024XXXXXXX' : _targetController.text;
 
     final plan = UssdService.buildServicePlan(
@@ -92,7 +115,7 @@ class _ServicesScreenState extends State<ServicesScreen> {
       type: _serviceType,
       targetAccountOrPhone: target,
       amount: amount,
-      extraParameter: _extraController.text.isNotEmpty ? _extraController.text : _selectedDataTier,
+      extraParameter: extraParam,
     );
 
     return SingleChildScrollView(
@@ -243,23 +266,30 @@ class _ServicesScreenState extends State<ServicesScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFF1A73E8)),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Auto USSD: ${plan.rootCode} (${plan.steps.length + 1} steps)',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).brightness == Brightness.dark
-                                    ? const Color(0xFFE8EAED)
-                                    : const Color(0xFF202124),
+                        Expanded(
+                          child: Row(
+                            children: [
+                              const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFF1A73E8)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Auto USSD: ${plan.rootCode} (${plan.steps.length + 1} steps)',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).brightness == Brightness.dark
+                                        ? const Color(0xFFE8EAED)
+                                        : const Color(0xFF202124),
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
+                        const SizedBox(width: 8),
                         Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               _isUssdStepsExpanded ? 'Hide Steps' : 'Show Steps',

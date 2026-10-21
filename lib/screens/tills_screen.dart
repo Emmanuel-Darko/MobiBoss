@@ -62,10 +62,14 @@ class TillsScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'TOTAL WORKING FLOAT',
-                        style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                      const Expanded(
+                        child: Text(
+                          'TOTAL WORKING FLOAT',
+                          style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold, letterSpacing: 0.8),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -324,14 +328,21 @@ class TillsScreen extends StatelessWidget {
                                 ),
                                 icon: const Icon(Icons.refresh_rounded, size: 14),
                                 label: const Text('Balance', style: TextStyle(fontSize: 11)),
-                                onPressed: () {
+                                onPressed: () async {
+                                  final plan = UssdService.buildCheckBalancePlan(till);
                                   TopToast.show(
                                     context,
                                     title: 'Checking Float Balance',
-                                    message: 'Dialing ${till.ussdPrefix} on ${till.simSlot}... Enter PIN to refresh float.',
+                                    message: 'Auto-navigating ${plan.rootCode} on ${till.simSlot}... Enter PIN to refresh float.',
                                     icon: Icons.bolt_rounded,
+                                    backgroundColor: const Color(0xFF1A73E8),
                                   );
-                                  UssdService.dialUssd(till.ussdPrefix, simSlot: till.simSlot.contains('2') ? 1 : 0);
+                                  await UssdService.initiateCustomAutomatedSession(
+                                    rootCode: plan.rootCode,
+                                    steps: plan.steps,
+                                    fallbackShortCode: plan.displayShortCode,
+                                    simSlot: till.simSlot.contains('2') ? 1 : 0,
+                                  );
                                 },
                               ),
                             ),

@@ -374,6 +374,8 @@ _${shift.aiDiagnosis}_''';
         return 'Pay TV Subscription';
       case TransactionType.bankTransfer:
         return 'Bank Transfer';
+      case TransactionType.reversal:
+        return 'Reversal (Refund)';
     }
   }
 

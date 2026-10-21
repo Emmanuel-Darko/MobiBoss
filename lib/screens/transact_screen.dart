@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/mobiboss_provider.dart';
 import '../models/mobiboss_models.dart';
 import '../services/ussd_service.dart';
 import '../widgets/top_toast.dart';
 import '../services/phone_helper.dart';
-import 'services_screen.dart';
 
 class TransactScreen extends StatefulWidget {
   const TransactScreen({super.key});
@@ -15,14 +15,13 @@ class TransactScreen extends StatefulWidget {
 }
 
 class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObserver {
-  int _transactMode = 0; // 0: Cash Operations, 1: Services & Bills
-  TransactionType _selectedType = TransactionType.cashIn;
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
-  bool _isUssdStepsExpanded = false;
-  bool _useCrossNetworkMmi = false;
 
-  final List<double> _quickAmounts = [50, 100, 200, 500, 1000];
+  bool _isPortedNumber = false;
+  bool _recordOnlyMode = false; // false = ⚡ Auto-USSD, true = 📝 Record Only
+
+  final List<double> _quickAmounts = [10, 20, 50, 100, 200, 500];
 
   @override
   void initState() {
@@ -47,563 +46,1159 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
     super.dispose();
   }
 
+  void _clearFields() {
+    setState(() {
+      _phoneController.clear();
+      _amountController.clear();
+      _isPortedNumber = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MoMoProvider>();
     final activeTill = provider.selectedTill;
-    final amount = double.tryParse(_amountController.text) ?? 0.0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     final rawPhone = _phoneController.text.trim();
-    final customerPhone = rawPhone.isEmpty ? '024XXXXXXX' : rawPhone;
-    final detectedNet = rawPhone.length >= 3 ? PhoneHelper.detectNetwork(PhoneHelper.normalize(rawPhone)) : null;
-    final isCrossNetwork = detectedNet != null && detectedNet != activeTill.network;
+    final normalizedPhone = PhoneHelper.normalize(rawPhone);
+    final detectedNet = rawPhone.length >= 3 ? PhoneHelper.detectNetwork(normalizedPhone) : null;
 
-    final MultiStepUssdPlan plan;
-    if (_useCrossNetworkMmi && isCrossNetwork) {
-      plan = UssdService.buildCrossNetworkMmiPlan(
-        destinationNetwork: detectedNet,
-        customerPhone: customerPhone,
-        amount: amount,
-      );
-    } else {
-      plan = UssdService.buildMultiStepPlan(
-        till: activeTill,
-        type: _selectedType,
-        customerPhone: customerPhone,
-        amount: amount,
-      );
-    }
+    // Search contact name if available
+    final matchedContact = provider.customerContacts.where((c) => PhoneHelper.normalize(c.phone) == normalizedPhone).firstOrNull;
 
-    if (_transactMode == 1) {
-      return Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: _buildModeSwitcher(),
+    // Real-time recurring customer suggestions (matching phone or name)
+    final suggestions = (rawPhone.length >= 2)
+        ? provider.customerContacts.where((c) {
+            final q = rawPhone.toLowerCase();
+            final normC = PhoneHelper.normalize(c.phone);
+            return (normC.contains(q) || c.name.toLowerCase().contains(q)) && normC != normalizedPhone;
+          }).take(3).toList()
+        : <CustomerContact>[];
+
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ─── 1. Top Quick Bar: Active Till Pill + Mode Switch ───
+              _buildTopQuickBar(provider, activeTill, isDark),
+              const SizedBox(height: 10),
+
+              // ─── Accessibility Warning Banner (if disabled) ───
+              if (!provider.isAccessibilityEnabled && !_recordOnlyMode) ...[
+                _buildAccessibilityBanner(isDark),
+                const SizedBox(height: 10),
+              ],
+
+              // ─── 2. Unified Hero Input Card ───
+              _buildUnifiedInputHero(provider, activeTill, detectedNet, matchedContact, suggestions, isDark),
+              const SizedBox(height: 12),
+
+              // ─── 3. Direct 1-Tap Action Grid ───
+              _buildActionGrid(provider, activeTill, isDark),
+              const SizedBox(height: 10),
+            ],
           ),
-          const Expanded(child: ServicesScreen()),
-        ],
-      );
-    }
+        ),
+      ),
+    );
+  }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildModeSwitcher(),
-          const SizedBox(height: 12),
-
-          // Accessibility Service Enablement Banner
-          if (!provider.isAccessibilityEnabled) ...[
-            Builder(
-              builder: (ctx) {
-                final isDark = Theme.of(ctx).brightness == Brightness.dark;
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 14),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF332600) : const Color(0xFFFEF7E0),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: isDark ? const Color(0xFF7A5900) : const Color(0xFFF9AB00),
-                    ),
-                  ),
-                  child: Row(
+  Widget _buildTopQuickBar(MoMoProvider provider, Till activeTill, bool isDark) {
+    return Row(
+      children: [
+        // Active Till Selector Pill
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E2022) : const Color(0xFFF1F3F4),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0),
+              ),
+            ),
+            child: Row(
+              children: [
+                _getNetworkLogo(activeTill.network, size: 21),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.bolt_rounded,
-                        color: isDark ? const Color(0xFFFFB74D) : const Color(0xFFE37400),
-                        size: 24,
+                      Text(
+                        '${activeTill.tillName} (${activeTill.simSlot})',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Enable Auto-USSD Automation',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: isDark ? const Color(0xFFFFD54F) : const Color(0xFF202124),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Auto-navigates multi-step menus up to PIN entry and captures callbacks.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: isDark ? const Color(0xFFFFD54F) : const Color(0xFF1A73E8),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                        ),
-                        onPressed: () => UssdService.openAccessibilitySettings(),
-                        child: const Text('Enable', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      Text(
+                        'Float: GHS ${provider.formatAmount(activeTill.currentFloat)}',
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF1E8E3E), fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
-                );
-              },
-            ),
-          ],
-
-          // 1. Till Selector Card
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: activeTill.network == NetworkProvider.mtn
-                          ? const Color(0xFFFFF4CC)
-                          : const Color(0xFFFFEBEE),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.sim_card_rounded,
-                      color: activeTill.network == NetworkProvider.mtn
-                          ? const Color(0xFFF9AB00)
-                          : Colors.red,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          activeTill.tillName,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          'Float: GHS ${activeTill.currentFloat.toStringAsFixed(2)}',
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF1E8E3E), fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                  DropdownButton<String>(
-                    value: activeTill.id,
-                    underline: const SizedBox(),
-                    items: provider.tills.map((t) {
-                      return DropdownMenuItem(
-                        value: t.id,
-                        child: Text(t.network.name.toUpperCase(), style: const TextStyle(fontSize: 12)),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) provider.selectTill(val);
-                    },
-                  ),
-                ],
-              ),
+                ),
+                DropdownButton<String>(
+                  value: activeTill.id,
+                  isDense: true,
+                  underline: const SizedBox(),
+                  icon: const Icon(Icons.arrow_drop_down, size: 20),
+                  items: provider.tills.map((t) {
+                    return DropdownMenuItem(
+                      value: t.id,
+                      child: Text(t.network.name.toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) provider.selectTill(val);
+                  },
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 14),
+        ),
+        const SizedBox(width: 8),
 
-          // 2. Transaction Type Segmented Pills
-          SegmentedButton<TransactionType>(
-            segments: const [
-              ButtonSegment(
-                value: TransactionType.cashIn,
-                label: Text('Cash In (Deposit)', style: TextStyle(fontSize: 12)),
-                icon: Icon(Icons.arrow_downward_rounded, size: 16),
+        // Mode Toggle Chip: ⚡ Auto-USSD vs 📝 Record Only
+        InkWell(
+          borderRadius: BorderRadius.circular(11),
+          onTap: () {
+            setState(() => _recordOnlyMode = !_recordOnlyMode);
+            TopToast.show(
+              context,
+              title: _recordOnlyMode ? 'Mode: Record Only' : 'Mode: ⚡ Auto-USSD',
+              message: _recordOnlyMode
+                  ? 'Transactions will be logged directly without USSD dialing.'
+                  : 'Transactions will auto-navigate carrier USSD up to PIN prompt.',
+              icon: _recordOnlyMode ? Icons.edit_note_rounded : Icons.bolt_rounded,
+              backgroundColor: _recordOnlyMode ? const Color(0xFF1A73E8) : const Color(0xFF1E8E3E),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8.5),
+            decoration: BoxDecoration(
+              color: _recordOnlyMode
+                  ? (isDark ? const Color(0xFF1A2B4C) : const Color(0xFFE8F0FE))
+                  : (isDark ? const Color(0xFF0F3818) : const Color(0xFFE6F4EA)),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: _recordOnlyMode ? const Color(0xFF1A73E8) : const Color(0xFF1E8E3E),
               ),
-              ButtonSegment(
-                value: TransactionType.cashOut,
-                label: Text('Cash Out (Withdraw)', style: TextStyle(fontSize: 12)),
-                icon: Icon(Icons.arrow_upward_rounded, size: 16),
-              ),
-            ],
-            selected: {_selectedType},
-            onSelectionChanged: (set) => setState(() => _selectedType = set.first),
-          ),
-          const SizedBox(height: 14),
-
-          // 3. Customer Phone Input with Directory Picker
-          TextField(
-            controller: _phoneController,
-            keyboardType: TextInputType.phone,
-            onChanged: (val) {
-              setState(() {});
-              if (val.length >= 3) {
-                final norm = PhoneHelper.normalize(val);
-                final net = PhoneHelper.detectNetwork(norm);
-                if (net != null) {
-                  final matching = provider.tills.where((t) => t.network == net);
-                  if (matching.isNotEmpty) {
-                    provider.selectTill(matching.first.id);
-                  }
-                }
-              }
-            },
-            decoration: InputDecoration(
-              labelText: 'Customer Mobile Number',
-              hintText: '0244123456',
-              prefixIcon: const Icon(Icons.phone_android_rounded),
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.contacts_rounded, color: Color(0xFF1A73E8)),
-                tooltip: 'Customer Directory',
-                onPressed: () => _showCustomerDirectoryModal(context, provider),
-              ),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              filled: true,
-              fillColor: Theme.of(context).cardColor,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _recordOnlyMode ? Icons.edit_note_rounded : Icons.bolt_rounded,
+                  size: 16,
+                  color: _recordOnlyMode ? const Color(0xFF1A73E8) : const Color(0xFF1E8E3E),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _recordOnlyMode ? 'Record' : '⚡ Auto',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _recordOnlyMode ? const Color(0xFF1A73E8) : const Color(0xFF1E8E3E),
+                  ),
+                ),
+              ],
             ),
           ),
-          if (_phoneController.text.trim().length >= 2) ...[
-            Builder(
-              builder: (ctx) {
-                final typed = _phoneController.text.trim();
-                final normTyped = PhoneHelper.normalize(typed);
-                final suggestions = provider.customerContacts.where((c) {
-                  final normC = PhoneHelper.normalize(c.phone);
-                  return normC.contains(normTyped) || c.name.toLowerCase().contains(typed.toLowerCase());
-                }).take(4).toList();
+        ),
+      ],
+    );
+  }
 
-                if (suggestions.isEmpty) return const SizedBox.shrink();
+  Widget _buildAccessibilityBanner(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF332600) : const Color(0xFFFEF7E0),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isDark ? const Color(0xFF7A5900) : const Color(0xFFF9AB00)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.bolt_rounded, color: Color(0xFFE37400), size: 18),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Enable Auto-USSD in Accessibility Settings for 1-tap dialing.',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            onPressed: () => UssdService.openAccessibilitySettings(),
+            child: const Text('Enable', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
 
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: suggestions.map((c) {
-                        final norm = PhoneHelper.normalize(c.phone);
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: ActionChip(
-                            avatar: const Icon(Icons.person_rounded, size: 14, color: Color(0xFF1A73E8)),
-                            label: Text(
-                              '${c.name.split(' ').first} (${PhoneHelper.formatDisplay(norm)})',
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _phoneController.text = norm;
-                              });
+  Widget _buildUnifiedInputHero(
+    MoMoProvider provider,
+    Till activeTill,
+    NetworkProvider? detectedNet,
+    CustomerContact? matchedContact,
+    List<CustomerContact> suggestions,
+    bool isDark,
+  ) {
+    final hasPhone = _phoneController.text.isNotEmpty;
+    final hasAmount = _amountController.text.isNotEmpty;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ─── Phone Number Header Row ───
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'PHONE NUMBER / ACCOUNT',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF5F6368), letterSpacing: 0.5),
+                ),
+                if (hasPhone || hasAmount)
+                  InkWell(
+                    onTap: _clearFields,
+                    child: const Text(
+                      'Clear Fields ✕',
+                      style: TextStyle(fontSize: 11, color: Color(0xFFD93025), fontWeight: FontWeight.bold),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // ─── Phone Number Input Field with Styled Paste & Directory Icons ───
+            TextField(
+              controller: _phoneController,
+              keyboardType: TextInputType.phone,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 1.1),
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                hintText: '024 412 3456',
+                hintStyle: TextStyle(
+                  fontSize: 17.5,
+                  fontWeight: FontWeight.normal,
+                  color: isDark ? const Color(0xFF5F6368) : const Color(0xFFBDC1C6),
+                ),
+                prefixIcon: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  child: _getNetworkLogo(detectedNet ?? activeTill.network, size: 23),
+                ),
+                prefixIconConstraints: const BoxConstraints(minWidth: 40, maxHeight: 23),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Styled compact paste icon
+                    Container(
+                      margin: const EdgeInsets.only(right: 3),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.content_paste_rounded, size: 16.5, color: Color(0xFF1A73E8)),
+                        tooltip: 'Paste Phone Number',
+                        padding: const EdgeInsets.all(6),
+                        constraints: const BoxConstraints(),
+                        onPressed: () async {
+                          final data = await Clipboard.getData('text/plain');
+                          if (data?.text != null && data!.text!.isNotEmpty) {
+                            final clean = data.text!.replaceAll(RegExp(r'[^0-9+]'), '').trim();
+                            setState(() {
+                              _phoneController.text = clean;
+                            });
+                            if (!_isPortedNumber && clean.length >= 3) {
+                              final norm = PhoneHelper.normalize(clean);
                               final net = PhoneHelper.detectNetwork(norm);
                               if (net != null) {
                                 final matching = provider.tills.where((t) => t.network == net);
-                                if (matching.isNotEmpty) {
-                                  provider.selectTill(matching.first.id);
-                                }
+                                if (matching.isNotEmpty) provider.selectTill(matching.first.id);
                               }
-                            },
-                          ),
-                        );
-                      }).toList(),
+                            }
+                          }
+                        },
+                      ),
                     ),
-                  ),
-                );
+                    const SizedBox(width: 3),
+                    // Customer directory icon
+                    IconButton(
+                      icon: const Icon(Icons.contacts_rounded, size: 19.5, color: Color(0xFF5F6368)),
+                      tooltip: 'Customer Contacts Directory',
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                      onPressed: () => _showCustomerDirectoryModal(context, provider),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(11)),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E2022) : const Color(0xFFFAFAFA),
+              ),
+              onChanged: (val) {
+                setState(() {});
+                if (!_isPortedNumber && val.length >= 3) {
+                  final norm = PhoneHelper.normalize(val);
+                  final net = PhoneHelper.detectNetwork(norm);
+                  if (net != null) {
+                    final matching = provider.tills.where((t) => t.network == net);
+                    if (matching.isNotEmpty && matching.first.id != activeTill.id) {
+                      provider.selectTill(matching.first.id);
+                    }
+                  }
+                }
               },
             ),
-          ],
-          if (isCrossNetwork) ...[
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? const Color(0xFF1F2937)
-                    : const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0xFF374151)
-                      : const Color(0xFFBFDBFE),
+
+            // ─── Real-time Autocomplete Suggestions (Matching Past Customers) ───
+            if (suggestions.isNotEmpty) ...[
+              Container(
+                margin: const EdgeInsets.only(top: 7),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: const Color(0xFF1A73E8).withValues(alpha: 0.3)),
                 ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.swap_calls_rounded, size: 18, color: Color(0xFF1A73E8)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Cross-network: ${detectedNet.name.toUpperCase()} recipient from ${activeTill.network.name.toUpperCase()} Till',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  FilterChip(
-                    label: const Text('Use *170# MMI', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                    selected: _useCrossNetworkMmi,
-                    selectedColor: const Color(0xFF1A73E8),
-                    checkmarkColor: Colors.white,
-                    labelStyle: TextStyle(color: _useCrossNetworkMmi ? Colors.white : null),
-                    onSelected: (val) => setState(() => _useCrossNetworkMmi = val),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-
-          // 4. Amount Input
-          TextField(
-            controller: _amountController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              labelText: 'Amount (GHS)',
-              prefixText: 'GHS ',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              filled: true,
-              fillColor: Theme.of(context).cardColor,
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // Quick Amount Chips
-          Wrap(
-            spacing: 8,
-            children: _quickAmounts.map((amt) {
-              return ActionChip(
-                label: Text('+${amt.toInt()}', style: const TextStyle(fontSize: 12)),
-                onPressed: () {
-                  setState(() {
-                    _amountController.text = amt.toStringAsFixed(0);
-                  });
-                },
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 16),
-
-          // 5. Automated Multi-Step Navigation Breakdown (Collapsible)
-          Card(
-            color: Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF1E1E1E)
-                : const Color(0xFFF1F3F4),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => setState(() => _isUssdStepsExpanded = !_isUssdStepsExpanded),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
+                  children: suggestions.map((c) {
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(9),
+                      onTap: () {
+                        setState(() {
+                          _phoneController.text = c.phone;
+                        });
+                        final norm = PhoneHelper.normalize(c.phone);
+                        final net = PhoneHelper.detectNetwork(norm);
+                        if (net != null) {
+                          final matching = provider.tills.where((t) => t.network == net);
+                          if (matching.isNotEmpty) provider.selectTill(matching.first.id);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+                        child: Row(
                           children: [
-                            const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFF1A73E8)),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Auto USSD: ${plan.rootCode} (${plan.steps.length + 1} steps)',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Theme.of(context).brightness == Brightness.dark
-                                    ? const Color(0xFFE8EAED)
-                                    : const Color(0xFF202124),
+                            _getNetworkLogo(c.network, size: 16),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${c.name} • ${c.phone}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1A73E8).withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '${c.totalTransactions} txs',
+                                style: const TextStyle(fontSize: 10, color: Color(0xFF1A73E8), fontWeight: FontWeight.bold),
                               ),
                             ),
                           ],
                         ),
-                        Row(
-                          children: [
-                            Text(
-                              _isUssdStepsExpanded ? 'Hide Steps' : 'Show Steps',
-                              style: const TextStyle(fontSize: 10, color: Color(0xFF1A73E8), fontWeight: FontWeight.bold),
-                            ),
-                            Icon(
-                              _isUssdStepsExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
-                              size: 16,
-                              color: const Color(0xFF1A73E8),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    if (_isUssdStepsExpanded) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          _buildStepChip('1. Dial ${plan.rootCode}'),
-                          const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
-                          ...plan.steps.asMap().entries.map((entry) {
-                            return Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildStepChip('${entry.key + 2}. Enter "${entry.value}"'),
-                                if (entry.key < plan.steps.length - 1)
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 2),
-                                    child: Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
-                                  ),
-                              ],
-                            );
-                          }),
-                          const Icon(Icons.chevron_right_rounded, size: 14, color: Colors.grey),
-                          _buildStepChip('🔒 Pause at PIN', isPin: true),
-                        ],
                       ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-
-          // 6. Dual Action Buttons: USSD Auto-Initiate OR Direct Offline Record
-          Row(
-            children: [
-              Expanded(
-                flex: 6,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    backgroundColor: const Color(0xFF1A73E8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.bolt_rounded, size: 20),
-                  label: const Text(
-                    'Execute USSD',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                  ),
-                  onPressed: () async {
-                    if (amount <= 0 || _phoneController.text.length < 9) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Please enter a valid phone number and amount')),
-                      );
-                      return;
-                    }
-
-                    if (!provider.isAccessibilityEnabled) {
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Accessibility Service Required'),
-                          content: const Text(
-                            'The USSD Auto-Navigation service must be enabled in Android Accessibility Settings '
-                            'so MobiBoss can auto-fill menus up to the PIN prompt.\n\n'
-                            'Look for "MobiBoss" in the list and enable it.',
-                          ),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                            FilledButton(
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                UssdService.openAccessibilitySettings();
-                              },
-                              child: const Text('Open Settings'),
-                            ),
-                          ],
-                        ),
-                      );
-                      return;
-                    }
-
-                    // Record as pending in ledger
-                    await provider.recordPendingUssdTransaction(
-                      till: activeTill,
-                      type: _selectedType,
-                      amount: amount,
-                      customerPhone: _phoneController.text.trim(),
-                      ussdCode: plan.rootCode,
                     );
-
-                    if (context.mounted) {
-                      TopToast.show(
-                        context,
-                        title: 'USSD Session in Progress',
-                        message: 'Auto-navigating ${plan.steps.length} steps on ${activeTill.network.name.toUpperCase()}... Pause at PIN.',
-                        icon: Icons.bolt_rounded,
-                        backgroundColor: const Color(0xFF1A73E8),
-                      );
-                    }
-
-                    // Trigger automated multi-step USSD session
-                    if (_useCrossNetworkMmi && isCrossNetwork) {
-                      await UssdService.initiateCustomAutomatedSession(
-                        rootCode: plan.rootCode,
-                        steps: plan.steps,
-                        fallbackShortCode: plan.displayShortCode,
-                        simSlot: activeTill.simSlot.contains('2') ? 1 : 0,
-                      );
-                    } else {
-                      await UssdService.initiateAutomatedSession(
-                        till: activeTill,
-                        type: _selectedType,
-                        customerPhone: _phoneController.text,
-                        amount: amount,
-                      );
-                    }
-
-                    _amountController.clear();
-                    _phoneController.clear();
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 5,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    side: const BorderSide(color: Color(0xFF1A73E8), width: 1.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.edit_note_rounded, size: 20, color: Color(0xFF1A73E8)),
-                  label: const Text(
-                    'Record Only',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8)),
-                  ),
-                  onPressed: () {
-                    if (amount <= 0 || _phoneController.text.length < 9) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Please enter a valid phone number and amount')),
-                      );
-                      return;
-                    }
-                    _showDirectRecordModal(context, provider, activeTill, amount, _phoneController.text.trim(), _selectedType);
-                  },
+                  }).toList(),
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          // Quick Sync SMS banner button
-          Center(
-            child: TextButton.icon(
-              icon: const Icon(Icons.sync_rounded, size: 16, color: Color(0xFF5F6368)),
-              label: const Text(
-                'Sync Telco Confirmation SMS',
-                style: TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+
+            // ─── Phone Sub-bar: Contact Name & Ported Checkbox ───
+            Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 3, left: 2, right: 2),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: matchedContact != null
+                        ? Row(
+                            children: [
+                              const Icon(Icons.verified_user_rounded, size: 14.5, color: Color(0xFF1E8E3E)),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '${matchedContact.name} (${matchedContact.totalTransactions} past txs)',
+                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E8E3E)),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Text(
+                            detectedNet != null
+                                ? 'Carrier: ${detectedNet.name.toUpperCase()}'
+                                : 'Enter customer mobile number',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () => setState(() => _isPortedNumber = !_isPortedNumber),
+                    borderRadius: BorderRadius.circular(7),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+                      decoration: BoxDecoration(
+                        color: _isPortedNumber
+                            ? (isDark ? const Color(0xFF332600) : const Color(0xFFFEF7E0))
+                            : (isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4)),
+                        borderRadius: BorderRadius.circular(7),
+                        border: Border.all(
+                          color: _isPortedNumber
+                              ? const Color(0xFFF9AB00)
+                              : (isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 15,
+                            height: 15,
+                            child: Checkbox(
+                              value: _isPortedNumber,
+                              visualDensity: VisualDensity.compact,
+                              onChanged: (v) => setState(() => _isPortedNumber = v ?? false),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text('Ported SIM?', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              onPressed: () async {
-                final count = await provider.syncRecentSms();
-                if (context.mounted) {
-                  TopToast.show(
-                    context,
-                    title: count > 0 ? 'SMS Sync Complete' : 'Up to Date',
-                    message: count > 0 ? 'Reconciled $count incoming telecom messages.' : 'No new MoMo confirmation SMS found.',
-                    icon: count > 0 ? Icons.check_circle_rounded : Icons.info_outline_rounded,
-                    backgroundColor: count > 0 ? const Color(0xFF1E8E3E) : const Color(0xFF5F6368),
-                  );
-                }
-              },
             ),
+            const Divider(height: 18, thickness: 1),
+
+            // ─── Amount Field ───
+            const Text(
+              'AMOUNT (GHS)',
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF5F6368), letterSpacing: 0.5),
+            ),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _amountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900, color: Color(0xFF1A73E8)),
+              decoration: InputDecoration(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10.5),
+                prefixText: 'GHS ',
+                prefixStyle: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Color(0xFF5F6368)),
+                hintText: '0.00',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(11)),
+                filled: true,
+                fillColor: isDark ? const Color(0xFF1E2022) : const Color(0xFFFAFAFA),
+                suffixIcon: hasAmount
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () => setState(() => _amountController.clear()),
+                      )
+                    : null,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+
+            // Quick Amount Pills
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _quickAmounts.map((amt) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 7),
+                    child: ActionChip(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      label: Text('+${amt.toInt()}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: () {
+                        final current = double.tryParse(_amountController.text) ?? 0;
+                        setState(() {
+                          _amountController.text = (current + amt).toStringAsFixed(0);
+                        });
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionGrid(MoMoProvider provider, Till activeTill, bool isDark) {
+    final livePhone = _phoneController.text.trim();
+    final liveAmount = double.tryParse(_amountController.text.replaceAll(',', '').replaceAll(' ', '')) ?? 0.0;
+
+    return Column(
+      children: [
+        // ─── Hero Row 1: Cash In & Cash Out (Primary 1-Tap) ───
+        Row(
+          children: [
+            Expanded(
+              child: _buildActionButton(
+                label: 'CASH IN',
+                subtitle: 'MoMo Deposit (3,1)',
+                icon: Icons.arrow_downward_rounded,
+                primaryColor: const Color(0xFF1E8E3E),
+                onTap: () => _executeCoreTransaction(
+                  provider: provider,
+                  till: activeTill,
+                  type: TransactionType.cashIn,
+                ),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _buildActionButton(
+                label: 'CASH OUT',
+                subtitle: 'Withdrawal (2,1)',
+                icon: Icons.arrow_upward_rounded,
+                primaryColor: const Color(0xFFD93025),
+                onTap: () => _executeCoreTransaction(
+                  provider: provider,
+                  till: activeTill,
+                  type: TransactionType.cashOut,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+
+        // ─── Row 2: Airtime & Data Bundles ───
+        Row(
+          children: [
+            Expanded(
+              child: _buildSecondaryButton(
+                label: 'AIRTIME',
+                subtitle: 'Top-Up (3%)',
+                icon: Icons.phone_forwarded_rounded,
+                color: const Color(0xFF1A73E8),
+                isDark: isDark,
+                onTap: () => _executeCoreTransaction(
+                  provider: provider,
+                  till: activeTill,
+                  type: TransactionType.airtime,
+                ),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _buildSecondaryButton(
+                label: 'DATA BUNDLE',
+                subtitle: 'Packages (4%)',
+                icon: Icons.wifi_rounded,
+                color: const Color(0xFF8E24AA),
+                isDark: isDark,
+                onTap: () => _showDataBundleSheet(provider, activeTill, livePhone),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+
+        // ─── Row 3: Utilities & Bank Transfer ───
+        Row(
+          children: [
+            Expanded(
+              child: _buildSecondaryButton(
+                label: 'ECG / WATER',
+                subtitle: 'Utility Bills',
+                icon: Icons.flash_on_rounded,
+                color: const Color(0xFFE37400),
+                isDark: isDark,
+                onTap: () => _showUtilityBillSheet(provider, activeTill, livePhone, liveAmount),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _buildSecondaryButton(
+                label: 'BANK TRANSFER',
+                subtitle: 'GhIPSS Direct',
+                icon: Icons.account_balance_rounded,
+                color: const Color(0xFF0D652D),
+                isDark: isDark,
+                onTap: () => _showBankTransferSheet(provider, activeTill, livePhone, liveAmount),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+
+        // ─── Row 4: Quick Carrier Inquiries (Commissions & Balance) ───
+        Row(
+          children: [
+            Expanded(
+              child: _buildInquiryButton(
+                label: 'COMMISSIONS (7,2)',
+                icon: Icons.monetization_on_rounded,
+                isDark: isDark,
+                onTap: () => _executeUssdInquiry(
+                  till: activeTill,
+                  plan: UssdService.buildCheckCommissionsPlan(activeTill),
+                  title: 'Checking Carrier Commissions',
+                ),
+              ),
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: _buildInquiryButton(
+                label: 'CHECK BALANCE (7,1)',
+                icon: Icons.account_balance_wallet_rounded,
+                isDark: isDark,
+                onTap: () => _executeUssdInquiry(
+                  till: activeTill,
+                  plan: UssdService.buildCheckBalancePlan(activeTill),
+                  title: 'Checking Till Float Balance',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton({
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required Color primaryColor,
+    required VoidCallback onTap,
+  }) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 9),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+        elevation: 2,
+      ),
+      onPressed: onTap,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 23),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+              ),
+              const SizedBox(height: 1.5),
+              Text(
+                subtitle,
+                style: const TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.w500),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSecondaryButton({
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton(
+      style: OutlinedButton.styleFrom(
+        backgroundColor: isDark ? color.withValues(alpha: 0.12) : color.withValues(alpha: 0.06),
+        side: BorderSide(color: color.withValues(alpha: 0.4), width: 1.2),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 9),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+      ),
+      onPressed: onTap,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 19, color: color),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color),
+              ),
+              const SizedBox(height: 1.5),
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 9.5, color: isDark ? Colors.white60 : Colors.black54),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInquiryButton({
+    required String label,
+    required IconData icon,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 9),
+        side: BorderSide(color: isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+      ),
+      icon: Icon(icon, size: 15.5, color: const Color(0xFF5F6368)),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043),
+        ),
+      ),
+      onPressed: onTap,
+    );
+  }
+
+  // ─── Transaction Execution Handler ───
+  Future<void> _executeCoreTransaction({
+    required MoMoProvider provider,
+    required Till till,
+    required TransactionType type,
+    double? amount,
+    String? phone,
+  }) async {
+    // Read live values directly from controllers, cleaning spaces, hyphens, and commas
+    final rawPhone = _phoneController.text.replaceAll(RegExp(r'[^0-9+]'), '').trim();
+    final cleanAmountStr = _amountController.text.replaceAll(',', '').replaceAll(' ', '').trim();
+    final parsedAmount = (amount != null && amount > 0) ? amount : (double.tryParse(cleanAmountStr) ?? 0.0);
+    final targetPhone = (phone != null && phone.trim().isNotEmpty)
+        ? phone.trim().replaceAll(RegExp(r'[^0-9+]'), '')
+        : rawPhone;
+
+    if (targetPhone.length < 9) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid customer phone number (at least 9 digits)'),
+          backgroundColor: Color(0xFFD93025),
+        ),
+      );
+      return;
+    }
+
+    if (parsedAmount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid amount greater than GHS 0.00'),
+          backgroundColor: Color(0xFFD93025),
+        ),
+      );
+      return;
+    }
+
+    if (_recordOnlyMode) {
+      _showDirectRecordModal(context, provider, till, parsedAmount, targetPhone, type);
+      return;
+    }
+
+    // Live USSD Execution: If accessibility is not enabled, offer immediate actionable options instead of blocking
+    if (!provider.isAccessibilityEnabled) {
+      _showAccessibilityOptionsSheet(
+        context: context,
+        provider: provider,
+        till: till,
+        type: type,
+        amount: parsedAmount,
+        phone: targetPhone,
+      );
+      return;
+    }
+
+    final plan = UssdService.buildMultiStepPlan(
+      till: till,
+      type: type,
+      customerPhone: targetPhone,
+      amount: parsedAmount,
+    );
+
+    await provider.recordPendingUssdTransaction(
+      till: till,
+      type: type,
+      amount: parsedAmount,
+      customerPhone: targetPhone,
+      ussdCode: plan.rootCode,
+    );
+
+    if (mounted) {
+      TopToast.show(
+        context,
+        title: 'USSD Session Started',
+        message: 'Auto-navigating ${plan.steps.length} steps on ${till.network.name.toUpperCase()}... Pause at PIN.',
+        icon: Icons.bolt_rounded,
+        backgroundColor: const Color(0xFF1A73E8),
+      );
+    }
+
+    final success = await UssdService.initiateAutomatedSession(
+      till: till,
+      type: type,
+      customerPhone: targetPhone,
+      amount: parsedAmount,
+    );
+
+    if (success) {
+      _clearFields();
+    } else {
+      if (mounted) {
+        TopToast.show(
+          context,
+          title: 'Dialing Unsuccessful',
+          message: 'Unable to start USSD dialer. Please check phone permissions or switch to Record Only mode.',
+          icon: Icons.error_outline_rounded,
+          backgroundColor: const Color(0xFFD93025),
+        );
+      }
+    }
+  }
+
+  Future<void> _executeUssdInquiry({
+    required Till till,
+    required MultiStepUssdPlan plan,
+    required String title,
+  }) async {
+    TopToast.show(
+      context,
+      title: title,
+      message: 'Dialing ${plan.rootCode} on ${till.network.name.toUpperCase()}...',
+      icon: Icons.phone_in_talk_rounded,
+      backgroundColor: const Color(0xFF1A73E8),
+    );
+
+    await UssdService.initiateCustomAutomatedSession(
+      rootCode: plan.rootCode,
+      steps: plan.steps,
+      fallbackShortCode: plan.displayShortCode,
+      simSlot: till.simSlot.contains('2') ? 1 : 0,
+    );
+  }
+
+  // ─── Fast Contextual Bottom Sheets for Complex Services ───
+
+  void _showDataBundleSheet(MoMoProvider provider, Till till, String phone) {
+    final phoneCtrl = TextEditingController(text: phone);
+    String selectedTier = '1';
+    final tiers = [
+      {'val': '1', 'name': 'Daily 350MB', 'price': '3.00'},
+      {'val': '2', 'name': 'Weekly 1.5GB', 'price': '12.00'},
+      {'val': '3', 'name': 'Weekly 3.5GB', 'price': '25.00'},
+      {'val': '4', 'name': 'Monthly 10GB', 'price': '60.00'},
+      {'val': '5', 'name': 'Monthly 25GB', 'price': '120.00'},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.wifi_rounded, color: Color(0xFF8E24AA)),
+                  SizedBox(width: 8),
+                  Text('Buy Data Bundle (4% Commission)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Customer Phone Number',
+                  prefixIcon: Icon(Icons.phone_android_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('Select Data Package:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              ...tiers.map((t) {
+                final isSelected = selectedTier == t['val'];
+                return Card(
+                  color: isSelected ? const Color(0xFF8E24AA).withValues(alpha: 0.1) : null,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(
+                      color: isSelected ? const Color(0xFF8E24AA) : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: ListTile(
+                    dense: true,
+                    title: Text(t['name']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    trailing: Text('GHS ${t['price']}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Color(0xFF8E24AA))),
+                    leading: Icon(
+                      isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                      color: isSelected ? const Color(0xFF8E24AA) : Colors.grey,
+                    ),
+                    onTap: () => setModalState(() => selectedTier = t['val']!),
+                  ),
+                );
+              }),
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF8E24AA),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () async {
+                  final targetPhone = phoneCtrl.text.trim();
+                  if (targetPhone.length < 9) return;
+                  Navigator.pop(ctx);
+
+                  final plan = UssdService.buildServicePlan(
+                    till: till,
+                    type: TransactionType.dataBundle,
+                    targetAccountOrPhone: targetPhone,
+                    amount: double.tryParse(tiers.firstWhere((t) => t['val'] == selectedTier)['price']!) ?? 10,
+                    extraParameter: selectedTier,
+                  );
+
+                  await UssdService.initiateCustomAutomatedSession(
+                    rootCode: plan.rootCode,
+                    steps: plan.steps,
+                    fallbackShortCode: plan.displayShortCode,
+                    simSlot: till.simSlot.contains('2') ? 1 : 0,
+                  );
+                },
+                child: const Text('Execute Bundle Purchase (⚡ USSD)', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showUtilityBillSheet(MoMoProvider provider, Till till, String phone, double amount) {
+    final meterCtrl = TextEditingController(text: phone);
+    final amtCtrl = TextEditingController(text: amount > 0 ? amount.toStringAsFixed(0) : '');
+    TransactionType selectedType = TransactionType.ecgElectricity;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.flash_on_rounded, color: Color(0xFFE37400)),
+                  SizedBox(width: 8),
+                  Text('Utility Bill Payment (ECG & Water)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SegmentedButton<TransactionType>(
+                segments: const [
+                  ButtonSegment(value: TransactionType.ecgElectricity, label: Text('ECG Electricity')),
+                  ButtonSegment(value: TransactionType.ghanaWater, label: Text('Ghana Water')),
+                ],
+                selected: {selectedType},
+                onSelectionChanged: (s) => setModalState(() => selectedType = s.first),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: meterCtrl,
+                decoration: InputDecoration(
+                  labelText: selectedType == TransactionType.ecgElectricity ? 'ECG Meter / Account Number' : 'Water Account Number',
+                  prefixIcon: const Icon(Icons.tag_rounded),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: amtCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Amount (GHS)',
+                  prefixText: 'GHS ',
+                  prefixIcon: Icon(Icons.payments_rounded),
+                ),
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE37400),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () async {
+                  final target = meterCtrl.text.trim();
+                  final amt = double.tryParse(amtCtrl.text) ?? 0;
+                  if (target.isEmpty || amt <= 0) return;
+                  Navigator.pop(ctx);
+
+                  final plan = UssdService.buildServicePlan(
+                    till: till,
+                    type: selectedType,
+                    targetAccountOrPhone: target,
+                    amount: amt,
+                  );
+
+                  await UssdService.initiateCustomAutomatedSession(
+                    rootCode: plan.rootCode,
+                    steps: plan.steps,
+                    fallbackShortCode: plan.displayShortCode,
+                    simSlot: till.simSlot.contains('2') ? 1 : 0,
+                  );
+                },
+                child: const Text('Pay Bill via USSD ⚡', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showBankTransferSheet(MoMoProvider provider, Till till, String phone, double amount) {
+    final accCtrl = TextEditingController(text: phone);
+    final amtCtrl = TextEditingController(text: amount > 0 ? amount.toStringAsFixed(0) : '');
+    String selectedBank = '1'; // GCB
+    final banks = [
+      {'val': '1', 'name': 'GCB Bank Ltd'},
+      {'val': '2', 'name': 'Ecobank Ghana'},
+      {'val': '3', 'name': 'Fidelity Bank'},
+      {'val': '4', 'name': 'Stanbic Bank'},
+      {'val': '5', 'name': 'Absa Bank'},
+      {'val': '6', 'name': 'Zenith Bank'},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.account_balance_rounded, color: Color(0xFF0D652D)),
+                  SizedBox(width: 8),
+                  Text('Direct Bank Transfer (GhIPSS)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: selectedBank,
+                decoration: const InputDecoration(labelText: 'Beneficiary Bank', prefixIcon: Icon(Icons.account_balance_rounded)),
+                items: banks.map((b) => DropdownMenuItem(value: b['val'], child: Text(b['name']!))).toList(),
+                onChanged: (v) => setModalState(() => selectedBank = v!),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: accCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Beneficiary Account Number', prefixIcon: Icon(Icons.tag_rounded)),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: amtCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Deposit Amount (GHS)', prefixText: 'GHS ', prefixIcon: Icon(Icons.payments_rounded)),
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D652D),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () async {
+                  final target = accCtrl.text.trim();
+                  final amt = double.tryParse(amtCtrl.text) ?? 0;
+                  if (target.isEmpty || amt <= 0) return;
+                  Navigator.pop(ctx);
+
+                  final plan = UssdService.buildServicePlan(
+                    till: till,
+                    type: TransactionType.bankTransfer,
+                    targetAccountOrPhone: target,
+                    amount: amt,
+                    extraParameter: selectedBank,
+                  );
+
+                  await UssdService.initiateCustomAutomatedSession(
+                    rootCode: plan.rootCode,
+                    steps: plan.steps,
+                    fallbackShortCode: plan.displayShortCode,
+                    simSlot: till.simSlot.contains('2') ? 1 : 0,
+                  );
+                },
+                child: const Text('Execute Bank Deposit ⚡', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -651,7 +1246,10 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Type:', style: TextStyle(fontSize: 12)),
-                      Text(type == TransactionType.cashIn ? 'Cash In' : type == TransactionType.cashOut ? 'Cash Out' : 'Airtime', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      Text(
+                        type == TransactionType.cashIn ? 'Cash In (Deposit)' : type == TransactionType.cashOut ? 'Cash Out (Withdraw)' : 'Airtime',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -667,7 +1265,10 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Amount:', style: TextStyle(fontSize: 12)),
-                      Text('GHS ${provider.formatAmount(amount)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A73E8))),
+                      Text(
+                        'GHS ${provider.formatAmount(amount)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A73E8)),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -705,14 +1306,13 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
                 reference: refCtrl.text.trim().isNotEmpty ? refCtrl.text.trim() : null,
               );
 
-              _amountController.clear();
-              _phoneController.clear();
+              _clearFields();
 
               if (context.mounted) {
                 TopToast.show(
                   context,
-                  title: 'Transaction Recorded',
-                  message: '${tx.type.name.toUpperCase()} GHS ${provider.formatAmount(tx.amount)} recorded to ${till.tillName}.',
+                  title: 'Transaction Recorded (Manual)',
+                  message: '${tx.type.name.toUpperCase()} GHS ${provider.formatAmount(tx.amount)} logged as Direct Entry.',
                   icon: Icons.check_circle_rounded,
                   backgroundColor: const Color(0xFF1E8E3E),
                 );
@@ -725,53 +1325,124 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
     );
   }
 
-  Widget _buildStepChip(String label, {bool isPin = false}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: isPin
-            ? (isDark ? const Color(0xFF3E2E04) : const Color(0xFFFFF4CC))
-            : (isDark ? const Color(0xFF2D2F31) : Colors.white),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isPin
-              ? const Color(0xFFF9AB00)
-              : (isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
-        ),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: isPin ? FontWeight.bold : FontWeight.w500,
-          color: isPin
-              ? const Color(0xFFF9AB00)
-              : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043)),
-        ),
-      ),
-    );
-  }
+  void _showAccessibilityOptionsSheet({
+    required BuildContext context,
+    required MoMoProvider provider,
+    required Till till,
+    required TransactionType type,
+    required double amount,
+    required String phone,
+  }) {
+    final typeName = type == TransactionType.cashIn
+        ? 'Cash In (Deposit)'
+        : type == TransactionType.cashOut
+            ? 'Cash Out (Withdraw)'
+            : 'Airtime';
 
-  Widget _buildModeSwitcher() {
-    return SizedBox(
-      width: double.infinity,
-      child: SegmentedButton<int>(
-        segments: const [
-          ButtonSegment(
-            value: 0,
-            label: Text('Cash In / Out', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            icon: Icon(Icons.payments_rounded, size: 16),
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(ctx).dividerColor.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A73E8).withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.flash_on_rounded, color: Color(0xFF1A73E8), size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('$typeName — GHS ${provider.formatAmount(amount)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text('Customer: $phone • ${till.network.name.toUpperCase()}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF5F6368))),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              // Option 1: Record Directly to Ledger
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(color: Color(0xFF1E8E3E), width: 1.5),
+                ),
+                tileColor: const Color(0xFF1E8E3E).withValues(alpha: 0.08),
+                leading: const Icon(Icons.edit_note_rounded, color: Color(0xFF1E8E3E), size: 28),
+                title: const Text('Record to Ledger Directly', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: const Text('Save transaction now, adjust drawer float, and skip USSD dialing', style: TextStyle(fontSize: 11)),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF1E8E3E)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showDirectRecordModal(context, provider, till, amount, phone, type);
+                },
+              ),
+              const SizedBox(height: 10),
+              // Option 2: Direct USSD Dial
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
+                ),
+                leading: const Icon(Icons.phone_in_talk_rounded, color: Color(0xFF1A73E8), size: 26),
+                title: const Text('Dial USSD on Phone', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: Text('Open phone dialer with ${till.network == NetworkProvider.mtn ? "*171#" : "*110#"}', style: const TextStyle(fontSize: 11)),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final plan = UssdService.buildMultiStepPlan(till: till, type: type, customerPhone: phone, amount: amount);
+                  await UssdService.dialUssd(plan.displayShortCode);
+                },
+              ),
+              const SizedBox(height: 10),
+              // Option 3: Enable Auto-USSD in Accessibility Settings
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
+                ),
+                leading: const Icon(Icons.accessibility_new_rounded, color: Color(0xFFE37400), size: 26),
+                title: const Text('Enable Auto-USSD (1-Tap)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: const Text('Open Android Settings to enable automated menu navigation', style: TextStyle(fontSize: 11)),
+                trailing: const Icon(Icons.open_in_new_rounded, size: 16),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  UssdService.openAccessibilitySettings();
+                },
+              ),
+            ],
           ),
-          ButtonSegment(
-            value: 1,
-            label: Text('Services & Bills', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            icon: Icon(Icons.grid_view_rounded, size: 16),
-          ),
-        ],
-        selected: {_transactMode},
-        onSelectionChanged: (set) => setState(() => _transactMode = set.first),
-      ),
+        );
+      },
     );
   }
 
@@ -800,7 +1471,7 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
                   child: provider.customerContacts.isEmpty
                       ? const Center(
                           child: Text(
-                            'No contacts saved yet.\nContacts will auto-save from confirmed transactions.',
+                            'No contacts saved yet.\nContacts auto-save from confirmed transactions.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Color(0xFF5F6368)),
                           ),
@@ -836,5 +1507,46 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
         );
       },
     );
+  }
+
+  Widget _getNetworkLogo(NetworkProvider net, {double size = 20}) {
+    switch (net) {
+      case NetworkProvider.mtn:
+        return Container(
+          width: size,
+          height: size,
+          decoration: const BoxDecoration(color: Color(0xFFFFCC00), shape: BoxShape.circle),
+          child: Center(
+            child: Text('M', style: TextStyle(fontSize: size * 0.55, fontWeight: FontWeight.w900, color: Colors.black)),
+          ),
+        );
+      case NetworkProvider.telecel:
+        return Container(
+          width: size,
+          height: size,
+          decoration: const BoxDecoration(color: Color(0xFFE60000), shape: BoxShape.circle),
+          child: Center(
+            child: Text('T', style: TextStyle(fontSize: size * 0.55, fontWeight: FontWeight.w900, color: Colors.white)),
+          ),
+        );
+      case NetworkProvider.at:
+        return Container(
+          width: size,
+          height: size,
+          decoration: const BoxDecoration(color: Color(0xFF003399), shape: BoxShape.circle),
+          child: Center(
+            child: Text('AT', style: TextStyle(fontSize: size * 0.45, fontWeight: FontWeight.w900, color: Colors.white)),
+          ),
+        );
+      case NetworkProvider.gmoney:
+        return Container(
+          width: size,
+          height: size,
+          decoration: const BoxDecoration(color: Color(0xFF008080), shape: BoxShape.circle),
+          child: Center(
+            child: Text('G', style: TextStyle(fontSize: size * 0.55, fontWeight: FontWeight.w900, color: Colors.white)),
+          ),
+        );
+    }
   }
 }

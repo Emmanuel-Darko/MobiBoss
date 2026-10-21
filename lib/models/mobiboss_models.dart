@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 enum NetworkProvider { mtn, telecel, at, gmoney }
 
 enum TransactionType {
@@ -10,9 +12,101 @@ enum TransactionType {
   ghanaWater,
   payTv,
   bankTransfer,
+  reversal,
 }
 
-enum TransactionStatus { completed, pending, failed, offlineQueued }
+class ShopProfile {
+  final String shopName;
+  final String ownerName;
+  final String ownerPhone;
+  final String branchLocation;
+  final String currencySymbol;
+
+  ShopProfile({
+    this.shopName = 'MobiBoss Agent Shop',
+    this.ownerName = 'Shop Owner',
+    this.ownerPhone = '',
+    this.branchLocation = 'Main Kiosk',
+    this.currencySymbol = 'GHS',
+  });
+
+  ShopProfile copyWith({
+    String? shopName,
+    String? ownerName,
+    String? ownerPhone,
+    String? branchLocation,
+    String? currencySymbol,
+  }) {
+    return ShopProfile(
+      shopName: shopName ?? this.shopName,
+      ownerName: ownerName ?? this.ownerName,
+      ownerPhone: ownerPhone ?? this.ownerPhone,
+      branchLocation: branchLocation ?? this.branchLocation,
+      currencySymbol: currencySymbol ?? this.currencySymbol,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'shopName': shopName,
+        'ownerName': ownerName,
+        'ownerPhone': ownerPhone,
+        'branchLocation': branchLocation,
+        'currencySymbol': currencySymbol,
+      };
+
+  factory ShopProfile.fromJson(Map<String, dynamic> json) => ShopProfile(
+        shopName: json['shopName'] as String? ?? 'MobiBoss Agent Shop',
+        ownerName: json['ownerName'] as String? ?? 'Shop Owner',
+        ownerPhone: json['ownerPhone'] as String? ?? '',
+        branchLocation: json['branchLocation'] as String? ?? 'Main Kiosk',
+        currencySymbol: json['currencySymbol'] as String? ?? 'GHS',
+      );
+}
+
+class NetworkVolumeSummary {
+  final NetworkProvider network;
+  final double cashInTotal;
+  final double cashOutTotal;
+  final double airtimeTotal;
+  final double dataTotal;
+  final double commissionsTotal;
+  final int txCount;
+
+  NetworkVolumeSummary({
+    required this.network,
+    this.cashInTotal = 0.0,
+    this.cashOutTotal = 0.0,
+    this.airtimeTotal = 0.0,
+    this.dataTotal = 0.0,
+    this.commissionsTotal = 0.0,
+    this.txCount = 0,
+  });
+
+  double get netVolume => cashInTotal + cashOutTotal + airtimeTotal + dataTotal;
+
+  Map<String, dynamic> toJson() => {
+        'network': network.name,
+        'cashInTotal': cashInTotal,
+        'cashOutTotal': cashOutTotal,
+        'airtimeTotal': airtimeTotal,
+        'dataTotal': dataTotal,
+        'commissionsTotal': commissionsTotal,
+        'txCount': txCount,
+      };
+
+  factory NetworkVolumeSummary.fromJson(Map<String, dynamic> json) =>
+      NetworkVolumeSummary(
+        network: NetworkProvider.values.byName(json['network'] as String),
+        cashInTotal: (json['cashInTotal'] as num?)?.toDouble() ?? 0.0,
+        cashOutTotal: (json['cashOutTotal'] as num?)?.toDouble() ?? 0.0,
+        airtimeTotal: (json['airtimeTotal'] as num?)?.toDouble() ?? 0.0,
+        dataTotal: (json['dataTotal'] as num?)?.toDouble() ?? 0.0,
+        commissionsTotal: (json['commissionsTotal'] as num?)?.toDouble() ?? 0.0,
+        txCount: (json['txCount'] as num?)?.toInt() ?? 0,
+      );
+}
+
+enum TransactionStatus { completed, pending, failed, offlineQueued, reversed }
 
 class Till {
   final String id;
@@ -97,6 +191,8 @@ class TransactionRecord {
   final String ussdString;
   final DateTime timestamp;
   final TransactionStatus status;
+  final bool isVoided;
+  final String? voidedByReversalId;
 
   TransactionRecord({
     required this.id,
@@ -111,7 +207,43 @@ class TransactionRecord {
     required this.ussdString,
     required this.timestamp,
     required this.status,
+    this.isVoided = false,
+    this.voidedByReversalId,
   });
+
+  TransactionRecord copyWith({
+    String? id,
+    String? tillId,
+    NetworkProvider? network,
+    TransactionType? type,
+    double? amount,
+    double? fee,
+    double? commission,
+    String? customerPhone,
+    String? reference,
+    String? ussdString,
+    DateTime? timestamp,
+    TransactionStatus? status,
+    bool? isVoided,
+    String? voidedByReversalId,
+  }) {
+    return TransactionRecord(
+      id: id ?? this.id,
+      tillId: tillId ?? this.tillId,
+      network: network ?? this.network,
+      type: type ?? this.type,
+      amount: amount ?? this.amount,
+      fee: fee ?? this.fee,
+      commission: commission ?? this.commission,
+      customerPhone: customerPhone ?? this.customerPhone,
+      reference: reference ?? this.reference,
+      ussdString: ussdString ?? this.ussdString,
+      timestamp: timestamp ?? this.timestamp,
+      status: status ?? this.status,
+      isVoided: isVoided ?? this.isVoided,
+      voidedByReversalId: voidedByReversalId ?? this.voidedByReversalId,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -126,6 +258,8 @@ class TransactionRecord {
         'ussdString': ussdString,
         'timestamp': timestamp.toIso8601String(),
         'status': status.name,
+        'isVoided': isVoided,
+        'voidedByReversalId': voidedByReversalId,
       };
 
   factory TransactionRecord.fromJson(Map<String, dynamic> json) =>
@@ -142,6 +276,8 @@ class TransactionRecord {
         ussdString: json['ussdString'] as String,
         timestamp: DateTime.parse(json['timestamp'] as String),
         status: TransactionStatus.values.byName(json['status'] as String),
+        isVoided: json['isVoided'] as bool? ?? false,
+        voidedByReversalId: json['voidedByReversalId'] as String?,
       );
 }
 
@@ -157,6 +293,9 @@ class SmsRecord {
   final String customerPhone;
   final double? postBalance;
   final DateTime timestamp;
+  final bool isReversed;
+  final bool isVoided;
+  final String? voidedByReversalId;
 
   SmsRecord({
     required this.id,
@@ -170,7 +309,44 @@ class SmsRecord {
     this.customerPhone = '',
     this.postBalance,
     required this.timestamp,
+    this.isReversed = false,
+    this.isVoided = false,
+    this.voidedByReversalId,
   });
+
+  SmsRecord copyWith({
+    String? id,
+    String? sender,
+    String? rawText,
+    NetworkProvider? network,
+    TransactionType? type,
+    double? amount,
+    double? fee,
+    String? reference,
+    String? customerPhone,
+    double? postBalance,
+    DateTime? timestamp,
+    bool? isReversed,
+    bool? isVoided,
+    String? voidedByReversalId,
+  }) {
+    return SmsRecord(
+      id: id ?? this.id,
+      sender: sender ?? this.sender,
+      rawText: rawText ?? this.rawText,
+      network: network ?? this.network,
+      type: type ?? this.type,
+      amount: amount ?? this.amount,
+      fee: fee ?? this.fee,
+      reference: reference ?? this.reference,
+      customerPhone: customerPhone ?? this.customerPhone,
+      postBalance: postBalance ?? this.postBalance,
+      timestamp: timestamp ?? this.timestamp,
+      isReversed: isReversed ?? this.isReversed,
+      isVoided: isVoided ?? this.isVoided,
+      voidedByReversalId: voidedByReversalId ?? this.voidedByReversalId,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -184,6 +360,9 @@ class SmsRecord {
         'customerPhone': customerPhone,
         'postBalance': postBalance,
         'timestamp': timestamp.toIso8601String(),
+        'isReversed': isReversed,
+        'isVoided': isVoided,
+        'voidedByReversalId': voidedByReversalId,
       };
 
   factory SmsRecord.fromJson(Map<String, dynamic> json) => SmsRecord(
@@ -200,7 +379,68 @@ class SmsRecord {
             ? (json['postBalance'] as num).toDouble()
             : null,
         timestamp: DateTime.parse(json['timestamp'] as String),
+        isReversed: json['isReversed'] as bool? ?? false,
+        isVoided: json['isVoided'] as bool? ?? false,
+        voidedByReversalId: json['voidedByReversalId'] as String?,
       );
+}
+
+class CashDenomination {
+  final Map<int, int> noteCounts; // e.g. {200: 0, 100: 2, 50: 10, 20: 5, 10: 0, 5: 0, 2: 0, 1: 0}
+  final double coinTotal;
+
+  CashDenomination({
+    Map<int, int>? noteCounts,
+    this.coinTotal = 0.0,
+  }) : noteCounts = noteCounts ??
+            {
+              200: 0,
+              100: 0,
+              50: 0,
+              20: 0,
+              10: 0,
+              5: 0,
+              2: 0,
+              1: 0,
+            };
+
+  double get totalNotes =>
+      noteCounts.entries.fold(0.0, (sum, entry) => sum + (entry.key * entry.value));
+
+  double get total => totalNotes + coinTotal;
+
+  int get totalNoteCount =>
+      noteCounts.values.fold(0, (sum, count) => sum + count);
+
+  CashDenomination copyWith({
+    Map<int, int>? noteCounts,
+    double? coinTotal,
+  }) {
+    return CashDenomination(
+      noteCounts: noteCounts != null ? Map<int, int>.from(noteCounts) : Map<int, int>.from(this.noteCounts),
+      coinTotal: coinTotal ?? this.coinTotal,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'noteCounts': noteCounts.map((k, v) => MapEntry(k.toString(), v)),
+        'coinTotal': coinTotal,
+      };
+
+  factory CashDenomination.fromJson(Map<String, dynamic> json) {
+    final rawNotes = json['noteCounts'] as Map<String, dynamic>? ?? {};
+    final parsedNotes = <int, int>{};
+    for (final entry in rawNotes.entries) {
+      final key = int.tryParse(entry.key);
+      if (key != null) {
+        parsedNotes[key] = (entry.value as num?)?.toInt() ?? 0;
+      }
+    }
+    return CashDenomination(
+      noteCounts: parsedNotes,
+      coinTotal: (json['coinTotal'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
 }
 
 class ReconciliationResult {
@@ -213,6 +453,8 @@ class ReconciliationResult {
   final double totalCommissions;
   final String status; // BALANCED, SHORTAGE, OVERAGE
   final String aiDiagnosis;
+  final CashDenomination? denomination;
+  final Map<String, NetworkVolumeSummary>? networkBreakdown;
 
   ReconciliationResult({
     required this.physicalCashCount,
@@ -224,6 +466,8 @@ class ReconciliationResult {
     required this.totalCommissions,
     required this.status,
     required this.aiDiagnosis,
+    this.denomination,
+    this.networkBreakdown,
   });
 
   Map<String, dynamic> toJson() => {
@@ -236,20 +480,36 @@ class ReconciliationResult {
         'totalCommissions': totalCommissions,
         'status': status,
         'aiDiagnosis': aiDiagnosis,
+        if (denomination != null) 'denomination': denomination!.toJson(),
+        if (networkBreakdown != null)
+          'networkBreakdown': networkBreakdown!.map((k, v) => MapEntry(k, v.toJson())),
       };
 
-  factory ReconciliationResult.fromJson(Map<String, dynamic> json) =>
-      ReconciliationResult(
-        physicalCashCount: (json['physicalCashCount'] as num).toDouble(),
-        expectedPhysicalCash: (json['expectedPhysicalCash'] as num).toDouble(),
-        cashVariance: (json['cashVariance'] as num).toDouble(),
-        totalCashIn: (json['totalCashIn'] as num).toDouble(),
-        totalCashOut: (json['totalCashOut'] as num).toDouble(),
-        totalPettyCash: (json['totalPettyCash'] as num?)?.toDouble() ?? 0.0,
-        totalCommissions: (json['totalCommissions'] as num).toDouble(),
-        status: json['status'] as String,
-        aiDiagnosis: json['aiDiagnosis'] as String,
-      );
+  factory ReconciliationResult.fromJson(Map<String, dynamic> json) {
+    Map<String, NetworkVolumeSummary>? breakdown;
+    if (json['networkBreakdown'] != null) {
+      final map = json['networkBreakdown'] as Map<String, dynamic>;
+      breakdown = map.map((k, v) => MapEntry(k, NetworkVolumeSummary.fromJson(v as Map<String, dynamic>)));
+    }
+
+    return ReconciliationResult(
+      physicalCashCount: (json['physicalCashCount'] as num).toDouble(),
+      expectedPhysicalCash: (json['expectedPhysicalCash'] as num).toDouble(),
+      cashVariance: (json['cashVariance'] as num).toDouble(),
+      totalCashIn: (json['totalCashIn'] as num).toDouble(),
+      totalCashOut: (json['totalCashOut'] as num).toDouble(),
+      totalPettyCash: (json['totalPettyCash'] as num?)?.toDouble() ?? 0.0,
+      totalCommissions: (json['totalCommissions'] as num).toDouble(),
+      status: json['status'] as String,
+      aiDiagnosis: json['aiDiagnosis'] as String,
+      denomination: json['denomination'] != null
+          ? (json['denomination'] is String
+              ? CashDenomination.fromJson(jsonDecode(json['denomination'] as String) as Map<String, dynamic>)
+              : CashDenomination.fromJson(json['denomination'] as Map<String, dynamic>))
+          : null,
+      networkBreakdown: breakdown,
+    );
+  }
 }
 
 class ShiftRecord {
@@ -267,6 +527,8 @@ class ShiftRecord {
   final int transactionCount;
   final String status; // BALANCED, SHORTAGE, OVERAGE
   final String aiDiagnosis;
+  final CashDenomination? denomination;
+  final Map<String, NetworkVolumeSummary>? networkBreakdown;
 
   ShiftRecord({
     required this.id,
@@ -283,6 +545,8 @@ class ShiftRecord {
     required this.transactionCount,
     required this.status,
     required this.aiDiagnosis,
+    this.denomination,
+    this.networkBreakdown,
   });
 
   Map<String, dynamic> toJson() => {
@@ -300,24 +564,41 @@ class ShiftRecord {
         'transactionCount': transactionCount,
         'status': status,
         'aiDiagnosis': aiDiagnosis,
+        if (denomination != null) 'denomination': denomination!.toJson(),
+        if (networkBreakdown != null)
+          'networkBreakdown': networkBreakdown!.map((k, v) => MapEntry(k, v.toJson())),
       };
 
-  factory ShiftRecord.fromJson(Map<String, dynamic> json) => ShiftRecord(
-        id: json['id'] as String,
-        shiftNumber: json['shiftNumber'] as int,
-        startTime: DateTime.parse(json['startTime'] as String),
-        endTime: DateTime.parse(json['endTime'] as String),
-        openingCash: (json['openingCash'] as num).toDouble(),
-        closingCash: (json['closingCash'] as num).toDouble(),
-        expectedCash: (json['expectedCash'] as num).toDouble(),
-        cashVariance: (json['cashVariance'] as num).toDouble(),
-        totalCashIn: (json['totalCashIn'] as num).toDouble(),
-        totalCashOut: (json['totalCashOut'] as num).toDouble(),
-        totalCommissions: (json['totalCommissions'] as num).toDouble(),
-        transactionCount: json['transactionCount'] as int,
-        status: json['status'] as String,
-        aiDiagnosis: json['aiDiagnosis'] as String,
-      );
+  factory ShiftRecord.fromJson(Map<String, dynamic> json) {
+    Map<String, NetworkVolumeSummary>? breakdown;
+    if (json['networkBreakdown'] != null) {
+      final map = json['networkBreakdown'] as Map<String, dynamic>;
+      breakdown = map.map((k, v) => MapEntry(k, NetworkVolumeSummary.fromJson(v as Map<String, dynamic>)));
+    }
+
+    return ShiftRecord(
+      id: json['id'] as String,
+      shiftNumber: json['shiftNumber'] as int,
+      startTime: DateTime.parse(json['startTime'] as String),
+      endTime: DateTime.parse(json['endTime'] as String),
+      openingCash: (json['openingCash'] as num).toDouble(),
+      closingCash: (json['closingCash'] as num).toDouble(),
+      expectedCash: (json['expectedCash'] as num).toDouble(),
+      cashVariance: (json['cashVariance'] as num).toDouble(),
+      totalCashIn: (json['totalCashIn'] as num).toDouble(),
+      totalCashOut: (json['totalCashOut'] as num).toDouble(),
+      totalCommissions: (json['totalCommissions'] as num).toDouble(),
+      transactionCount: json['transactionCount'] as int,
+      status: json['status'] as String,
+      aiDiagnosis: json['aiDiagnosis'] as String,
+      denomination: json['denomination'] != null
+          ? (json['denomination'] is String
+              ? CashDenomination.fromJson(jsonDecode(json['denomination'] as String) as Map<String, dynamic>)
+              : CashDenomination.fromJson(json['denomination'] as Map<String, dynamic>))
+          : null,
+      networkBreakdown: breakdown,
+    );
+  }
 }
 
 class CustomerContact {
@@ -426,6 +707,7 @@ class CommissionSettings {
       case TransactionType.bankTransfer:
         return bankTransferRate;
       case TransactionType.floatTransfer:
+      case TransactionType.reversal:
         return 0.0;
     }
   }

@@ -142,8 +142,10 @@ class _CommissionsScreenState extends State<CommissionsScreen> {
                   ),
                   const SizedBox(height: 10),
                   // Gamification Milestones
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.spaceBetween,
                     children: [
                       _buildMilestoneBadge('25%', 'Starter', dailyProgress >= 0.25),
                       _buildMilestoneBadge('50%', 'Halfway', dailyProgress >= 0.50),

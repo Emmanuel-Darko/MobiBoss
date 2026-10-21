@@ -4,7 +4,7 @@ import '../models/mobiboss_models.dart';
 class SmsParserService {
   static const _uuid = Uuid();
 
-  /// List of known telecom SMS sender IDs in Ghana
+  /// List of known telecom and FinTech SMS sender IDs in Ghana
   static const List<String> momoSenders = [
     'MobileMoney',
     'MTN',
@@ -20,6 +20,9 @@ class SmsParserService {
     'AirtelTigoMoney',
     'GMoney',
     'GCB',
+    'Zeepay',
+    'Hubtel',
+    'ExpressPay',
   ];
 
   /// Checks if a sender address matches mobile money services
@@ -33,14 +36,14 @@ class SmsParserService {
   }
 
   /// Parses raw SMS text or confirmed USSD prompt and extracts structured transaction metadata.
-  /// Returns NULL if the text is not an actual completed transaction (e.g., balance check, promo, MMI error).
+  /// Returns NULL if the text is not an actual completed transaction (e.g., balance check, promo, MMI error, failed txn).
   static SmsRecord? parse(String rawText, {String sender = '', DateTime? timestamp}) {
     final text = rawText.trim();
     if (text.isEmpty) return null;
 
     final lower = text.toLowerCase();
 
-    // 1. Filter out non-transaction texts immediately
+    // 1. Filter out non-transaction texts & failed alerts immediately
     if (_isNonTransactionMessage(lower)) {
       return null;
     }
@@ -62,6 +65,9 @@ class SmsParserService {
     final reference = _extractReference(text);
     final phone = _extractPhoneNumber(text);
     final postBalance = _extractPostBalance(text);
+    final isReversed = type == TransactionType.reversal ||
+        lower.contains('reversed') ||
+        lower.contains('reversal');
 
     return SmsRecord(
       id: _uuid.v4(),
@@ -75,6 +81,7 @@ class SmsParserService {
       customerPhone: phone,
       postBalance: postBalance,
       timestamp: timestamp ?? DateTime.now(),
+      isReversed: isReversed,
     );
   }
 
@@ -84,7 +91,7 @@ class SmsParserService {
   }
 
   static bool _isNonTransactionMessage(String lower) {
-    // MMI errors, progress texts, menus, and marketing
+    // 1. MMI errors, progress texts, menus, and marketing
     if (lower.contains('connection problem') ||
         lower.contains('invalid mmi') ||
         lower.contains('mmi code') ||
@@ -98,7 +105,20 @@ class SmsParserService {
       return true;
     }
 
-    // Pure balance inquiry message with NO payment action
+    // 2. Explicitly failed, declined, or timed-out transactions
+    if (lower.contains('transaction failed') ||
+        lower.contains('transfer failed') ||
+        lower.contains('payment failed') ||
+        lower.contains('unable to process') ||
+        lower.contains('insufficient funds') ||
+        lower.contains('declined') ||
+        lower.contains('transaction timed out') ||
+        lower.contains('not successful') ||
+        lower.contains('could not be completed')) {
+      return true;
+    }
+
+    // 3. Pure balance inquiry message with NO payment action
     final isPureBalanceCheck = (lower.contains('current balance') || lower.contains('available balance') || lower.contains('your balance is')) &&
         !lower.contains('payment made') &&
         !lower.contains('payment received') &&
@@ -109,6 +129,8 @@ class SmsParserService {
         !lower.contains('you have received') &&
         !lower.contains('you have sent') &&
         !lower.contains('recharge') &&
+        !lower.contains('reversed') &&
+        !lower.contains('reversal') &&
         !lower.contains('bundle purchased');
 
     return isPureBalanceCheck;
@@ -139,6 +161,14 @@ class SmsParserService {
   }
 
   static TransactionType? _detectTransactionType(String lower) {
+    // 0. Reversals (Highest precedence so reversed cashIn/cashOut is tagged correctly)
+    if (lower.contains('reversal') ||
+        lower.contains('reversed') ||
+        lower.contains('reversed successfully') ||
+        lower.contains('transaction reversed')) {
+      return TransactionType.reversal;
+    }
+
     // 1. Data Bundle
     if (lower.contains('data bundle') ||
         lower.contains('internet bundle') ||
@@ -261,14 +291,88 @@ class SmsParserService {
 
   static String _extractPhoneNumber(String text) {
     final match = RegExp(
-      r'(?:to|from|for|by|number)?\s*(\b(?:0[235][0-9]{8}|233[235][0-9]{8})\b)',
+      r'(?:to|from|for|by|number|customer)?\s*(\+?233[235][0-9]{8}|0[235][0-9]{8})\b',
       caseSensitive: false,
     ).firstMatch(text);
 
     if (match != null) {
-      return match.group(1)!;
+      var phone = match.group(1)!;
+      if (phone.startsWith('+233')) {
+        phone = '0${phone.substring(4)}';
+      } else if (phone.startsWith('233')) {
+        phone = '0${phone.substring(3)}';
+      }
+      return phone;
     }
     return '';
+  }
+
+  /// Checks if an incoming parsed SMS is a duplicate of an existing record
+  static bool isDuplicate(SmsRecord incoming, Iterable<SmsRecord> existing) {
+    return existing.any((r) {
+      // 1. Same explicit carrier reference (ignoring auto-generated fallback prefix 'SMS-')
+      if (!incoming.reference.startsWith('SMS-') &&
+          !r.reference.startsWith('SMS-') &&
+          r.reference.toLowerCase() == incoming.reference.toLowerCase()) {
+        return true;
+      }
+
+      // 2. Exact same raw message body from same sender
+      if (r.rawText.trim() == incoming.rawText.trim() &&
+          r.sender.toLowerCase() == incoming.sender.toLowerCase()) {
+        return true;
+      }
+
+      // 3. Fallback: same network, same type, same amount within 90 seconds
+      final diff = r.timestamp.difference(incoming.timestamp).inSeconds.abs();
+      if (r.network == incoming.network &&
+          r.type == incoming.type &&
+          (r.amount - incoming.amount).abs() < 0.01 &&
+          diff < 90) {
+        return true;
+      }
+
+      return false;
+    });
+  }
+
+  /// Finds the matching original transaction for a reversal SMS
+  static SmsRecord? findOriginalForReversal(SmsRecord reversal, Iterable<SmsRecord> ledger) {
+    if (!reversal.isReversed && reversal.type != TransactionType.reversal) {
+      return null;
+    }
+
+    // Try finding by reference match first if reversal message references the original ID
+    if (!reversal.reference.startsWith('SMS-')) {
+      for (final r in ledger) {
+        if (!r.isReversed && !r.isVoided) {
+          if (reversal.rawText.toLowerCase().contains(r.reference.toLowerCase())) {
+            return r;
+          }
+        }
+      }
+    }
+
+    // Otherwise match by network, amount, and time (within 24 hours prior)
+    for (final r in ledger) {
+      if (!r.isReversed && !r.isVoided) {
+        final sameNet = r.network == reversal.network;
+        final sameAmount = (r.amount - reversal.amount).abs() < 0.01;
+        final timeDiff = reversal.timestamp.difference(r.timestamp);
+        final isRecent = timeDiff.inMinutes >= -5 && timeDiff.inHours <= 24;
+
+        if (sameNet && sameAmount && isRecent) {
+          if (reversal.customerPhone.isNotEmpty && r.customerPhone.isNotEmpty) {
+            if (reversal.customerPhone == r.customerPhone) {
+              return r;
+            }
+          } else {
+            return r;
+          }
+        }
+      }
+    }
+    return null;
   }
 
   static double? _extractPostBalance(String text) {

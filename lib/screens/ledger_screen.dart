@@ -58,6 +58,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
         return const Color(0xFF8E24AA);
       case TransactionType.bankTransfer:
         return const Color(0xFF2E7D32);
+      case TransactionType.reversal:
+        return const Color(0xFFD93025);
     }
   }
 
@@ -81,6 +83,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
         return Icons.tv_rounded;
       case TransactionType.bankTransfer:
         return Icons.account_balance_rounded;
+      case TransactionType.reversal:
+        return Icons.replay_rounded;
     }
   }
 
@@ -104,6 +108,8 @@ class _LedgerScreenState extends State<LedgerScreen> {
         return 'Pay TV';
       case TransactionType.bankTransfer:
         return 'Bank Transfer';
+      case TransactionType.reversal:
+        return 'Reversal';
     }
   }
 
@@ -335,24 +341,50 @@ class _LedgerScreenState extends State<LedgerScreen> {
                                             ),
                                           ),
                                           const SizedBox(width: 4),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFF1E8E3E).withValues(alpha: 0.12),
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: const Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.shield_rounded, size: 9, color: Color(0xFF1E8E3E)),
-                                                SizedBox(width: 2),
-                                                Text(
-                                                  'Verified',
-                                                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFF1E8E3E)),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
+                                          Builder(builder: (_) {
+                                            final bool isManual = tx.ussdString == 'DIRECT_RECORD';
+                                            final bool isPending = tx.status == TransactionStatus.pending;
+                                            final bool isFailed = tx.status == TransactionStatus.failed;
+                                            final Color badgeColor = isManual
+                                                ? const Color(0xFFE37400)
+                                                : isPending
+                                                    ? const Color(0xFF1A73E8)
+                                                    : isFailed
+                                                        ? const Color(0xFFD93025)
+                                                        : const Color(0xFF1E8E3E);
+                                            final IconData badgeIcon = isManual
+                                                ? Icons.edit_note_rounded
+                                                : isPending
+                                                    ? Icons.hourglass_top_rounded
+                                                    : isFailed
+                                                        ? Icons.error_outline_rounded
+                                                        : Icons.shield_rounded;
+                                            final String badgeText = isManual
+                                                ? 'Manual'
+                                                : isPending
+                                                    ? 'Pending'
+                                                    : isFailed
+                                                        ? 'Failed'
+                                                        : 'Verified';
+                                            return Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: badgeColor.withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(badgeIcon, size: 9, color: badgeColor),
+                                                  const SizedBox(width: 2),
+                                                  Text(
+                                                    badgeText,
+                                                    style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: badgeColor),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }),
                                         ],
                                       ),
                                       const SizedBox(height: 3),
@@ -457,7 +489,23 @@ class _LedgerScreenState extends State<LedgerScreen> {
                     if (tx.fee > 0) _buildReceiptRow('Fee', 'GHS ${MoMoProvider.formatNumber(tx.fee)}'),
                     _buildReceiptRow('Reference ID', tx.reference),
                     _buildReceiptRow('Date & Time', dateFormat.format(tx.timestamp)),
-                    _buildReceiptRow('Status', 'CONFIRMED', valueColor: isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E)),
+                    _buildReceiptRow(
+                      'Status',
+                      tx.ussdString == 'DIRECT_RECORD'
+                          ? 'MANUAL ENTRY'
+                          : tx.status == TransactionStatus.pending
+                              ? 'PENDING'
+                              : tx.status == TransactionStatus.failed
+                                  ? 'FAILED'
+                                  : 'CONFIRMED (CARRIER SMS)',
+                      valueColor: tx.ussdString == 'DIRECT_RECORD'
+                          ? const Color(0xFFE37400)
+                          : tx.status == TransactionStatus.pending
+                              ? const Color(0xFF1A73E8)
+                              : tx.status == TransactionStatus.failed
+                                  ? const Color(0xFFD93025)
+                                  : (isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E)),
+                    ),
                   ],
                 ),
               ),

@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/mobiboss_models.dart';
 
@@ -97,28 +97,32 @@ class UssdService {
     switch (till.network) {
       case NetworkProvider.mtn:
         if (type == TransactionType.cashIn) {
+          // *171# > 3 (Cash In) > 1 (MoMo User) > {mobile} > {confirm_mobile} > {amount} > {reference} > [agent_pin]
           return MultiStepUssdPlan(
             rootCode: '*171#',
-            steps: ['1', '1', customerPhone, customerPhone, amtFormatted, 'POS'],
-            displayShortCode: '*171*1*1*$customerPhone*$customerPhone*$amtFormatted#',
+            steps: ['3', '1', customerPhone, customerPhone, amtFormatted, 'POS'],
+            displayShortCode: '*171*3*1*$customerPhone*$customerPhone*$amtFormatted*POS#',
           );
         } else if (type == TransactionType.cashOut) {
+          // *171# > 2 (Cash Out) > 1 (MoMo User) > {mobile} > {confirm_mobile} > {amount} > {reference} > [agent_pin]
           return MultiStepUssdPlan(
             rootCode: '*171#',
-            steps: ['1', '2', customerPhone, amtFormatted],
-            displayShortCode: '*171*1*2*$customerPhone*$amtFormatted#',
+            steps: ['2', '1', customerPhone, customerPhone, amtFormatted, 'POS'],
+            displayShortCode: '*171*2*1*$customerPhone*$customerPhone*$amtFormatted*POS#',
           );
         } else if (type == TransactionType.airtime) {
+          // *171# > 5 (Airtime & Bundles) > 1 (Airtime) > 5 (Other Networks / Customer) > {amount} > {mobile} > {confirm_mobile} > [agent_pin]
           return MultiStepUssdPlan(
             rootCode: '*171#',
-            steps: ['3', '1', customerPhone, amtFormatted],
-            displayShortCode: '*171*3*1*$customerPhone*$amtFormatted#',
+            steps: ['5', '1', '5', amtFormatted, customerPhone, customerPhone],
+            displayShortCode: '*171*5*1*5*$amtFormatted*$customerPhone*$customerPhone#',
           );
         } else {
+          // Data bundle: *171# > 5 > 2 > 1 > 1 > 2 > {mobile} > {confirm_mobile} > 1 > {amount} > 1 > 2 > [agent_pin]
           return MultiStepUssdPlan(
             rootCode: '*171#',
-            steps: ['3', '2', customerPhone, amtFormatted],
-            displayShortCode: '*171*3*2*$customerPhone*$amtFormatted#',
+            steps: ['5', '2', '1', '1', '2', customerPhone, customerPhone, '1', amtFormatted, '1', '2'],
+            displayShortCode: '*171*5*2*1*1*2*$customerPhone*$customerPhone*1*$amtFormatted*1*2#',
           );
         }
 
@@ -195,54 +199,79 @@ class UssdService {
 
     switch (type) {
       case TransactionType.airtime:
+        // MTN: 171,5,1,5,{amount},{mobile},{confirm_mobile},{pin}
         return MultiStepUssdPlan(
           rootCode: till.network == NetworkProvider.mtn ? '*171#' : '*110#',
           steps: till.network == NetworkProvider.mtn
-              ? ['3', '1', targetAccountOrPhone, amtFormatted]
+              ? ['5', '1', '5', amtFormatted, targetAccountOrPhone, targetAccountOrPhone]
               : ['3', '1', targetAccountOrPhone, amtFormatted],
-          displayShortCode: '*171*3*1*$targetAccountOrPhone*$amtFormatted#',
+          displayShortCode: till.network == NetworkProvider.mtn
+              ? '*171*5*1*5*$amtFormatted*$targetAccountOrPhone*$targetAccountOrPhone#'
+              : '*110*3*1*$targetAccountOrPhone*$amtFormatted#',
         );
 
       case TransactionType.dataBundle:
-        final packageOption = extraParameter ?? '1';
+        // MTN: 171,5,2,1,1,2,{mobile},{confirm_mobile},1,{amount},1,2,{pin}
         return MultiStepUssdPlan(
           rootCode: till.network == NetworkProvider.mtn ? '*171#' : '*110#',
           steps: till.network == NetworkProvider.mtn
-              ? ['3', '2', targetAccountOrPhone, packageOption, amtFormatted]
-              : ['3', '2', targetAccountOrPhone, packageOption],
-          displayShortCode: '*171*3*2*$targetAccountOrPhone#',
+              ? ['5', '2', '1', '1', '2', targetAccountOrPhone, targetAccountOrPhone, '1', amtFormatted, '1', '2']
+              : ['3', '2', targetAccountOrPhone, extraParameter ?? '1'],
+          displayShortCode: till.network == NetworkProvider.mtn
+              ? '*171*5*2*1*1*2*$targetAccountOrPhone*$targetAccountOrPhone*1*$amtFormatted*1*2#'
+              : '*110*3*2*$targetAccountOrPhone#',
         );
 
       case TransactionType.ecgElectricity:
+        // MTN: 171,4,1,1,{payment_id},{amount},{pin}
         final meterNumber = extraParameter ?? targetAccountOrPhone;
         return MultiStepUssdPlan(
           rootCode: till.network == NetworkProvider.mtn ? '*171#' : '*110#',
-          steps: ['2', '1', '1', meterNumber, amtFormatted],
-          displayShortCode: '*171*2*1*1*$meterNumber*$amtFormatted#',
+          steps: till.network == NetworkProvider.mtn
+              ? ['4', '1', '1', meterNumber, amtFormatted]
+              : ['2', '1', '1', meterNumber, amtFormatted],
+          displayShortCode: till.network == NetworkProvider.mtn
+              ? '*171*4*1*1*$meterNumber*$amtFormatted#'
+              : '*110*2*1*1*$meterNumber*$amtFormatted#',
         );
 
       case TransactionType.ghanaWater:
+        // MTN: 171,4,1,2,{payment_id},{amount},{pin}
         final accountNo = extraParameter ?? targetAccountOrPhone;
         return MultiStepUssdPlan(
           rootCode: till.network == NetworkProvider.mtn ? '*171#' : '*110#',
-          steps: ['2', '1', '2', accountNo, amtFormatted],
-          displayShortCode: '*171*2*1*2*$accountNo*$amtFormatted#',
+          steps: till.network == NetworkProvider.mtn
+              ? ['4', '1', '2', accountNo, amtFormatted]
+              : ['2', '1', '2', accountNo, amtFormatted],
+          displayShortCode: till.network == NetworkProvider.mtn
+              ? '*171*4*1*2*$accountNo*$amtFormatted#'
+              : '*110*2*1*2*$accountNo*$amtFormatted#',
         );
 
       case TransactionType.payTv:
+        // MTN: 171,4,2,{provider},{account_number},{amount},{pin}
         final smartcard = extraParameter ?? targetAccountOrPhone;
         return MultiStepUssdPlan(
           rootCode: till.network == NetworkProvider.mtn ? '*171#' : '*110#',
-          steps: ['2', '2', '1', smartcard, amtFormatted],
-          displayShortCode: '*171*2*2*1*$smartcard*$amtFormatted#',
+          steps: till.network == NetworkProvider.mtn
+              ? ['4', '2', '1', smartcard, amtFormatted]
+              : ['2', '2', '1', smartcard, amtFormatted],
+          displayShortCode: till.network == NetworkProvider.mtn
+              ? '*171*4*2*1*$smartcard*$amtFormatted#'
+              : '*110*2*2*1*$smartcard*$amtFormatted#',
         );
 
       case TransactionType.bankTransfer:
-        final accountNumber = extraParameter ?? targetAccountOrPhone;
+        // MTN: 171,6,1,1,{bank},{account},{amount},{pin}
+        final bankCode = extraParameter ?? '1';
         return MultiStepUssdPlan(
           rootCode: till.network == NetworkProvider.mtn ? '*171#' : '*110#',
-          steps: ['1', '3', '1', accountNumber, amtFormatted],
-          displayShortCode: '*171*1*3*1*$accountNumber*$amtFormatted#',
+          steps: till.network == NetworkProvider.mtn
+              ? ['6', '1', '1', bankCode, targetAccountOrPhone, amtFormatted]
+              : ['1', '3', '1', targetAccountOrPhone, amtFormatted],
+          displayShortCode: till.network == NetworkProvider.mtn
+              ? '*171*6*1*1*$bankCode*$targetAccountOrPhone*$amtFormatted#'
+              : '*110*1*3*1*$targetAccountOrPhone*$amtFormatted#',
         );
 
       default:
@@ -267,12 +296,12 @@ class UssdService {
       return MultiStepUssdPlan(
         rootCode: '*171#',
         steps: [
-          '5', // My Account
-          '3', // Commission
+          '7', // My Account
+          '3', // Commission Transfer
           toMainFloat ? '1' : '2', // 1 = To Float, 2 = To MoMo Wallet
           amtFormatted,
         ],
-        displayShortCode: '*171*5*3*${toMainFloat ? "1" : "2"}*$amtFormatted#',
+        displayShortCode: '*171*7*3*${toMainFloat ? "1" : "2"}*$amtFormatted#',
       );
     } else {
       return MultiStepUssdPlan(
@@ -284,6 +313,57 @@ class UssdService {
           amtFormatted,
         ],
         displayShortCode: '*110*5*3*${toMainFloat ? "1" : "2"}*$amtFormatted#',
+      );
+    }
+  }
+
+  /// Builds USSD plan for Balance Check: 171,7,1,{pin}
+  static MultiStepUssdPlan buildCheckBalancePlan(Till till) {
+    if (till.network == NetworkProvider.mtn) {
+      return MultiStepUssdPlan(
+        rootCode: '*171#',
+        steps: ['7', '1'],
+        displayShortCode: '*171*7*1#',
+      );
+    } else {
+      return MultiStepUssdPlan(
+        rootCode: '*110#',
+        steps: ['5', '1'],
+        displayShortCode: '*110*5*1#',
+      );
+    }
+  }
+
+  /// Builds USSD plan for Commissions Inquiry: 171,7,2,{pin}
+  static MultiStepUssdPlan buildCheckCommissionsPlan(Till till) {
+    if (till.network == NetworkProvider.mtn) {
+      return MultiStepUssdPlan(
+        rootCode: '*171#',
+        steps: ['7', '2'],
+        displayShortCode: '*171*7*2#',
+      );
+    } else {
+      return MultiStepUssdPlan(
+        rootCode: '*110#',
+        steps: ['5', '2'],
+        displayShortCode: '*110*5*2#',
+      );
+    }
+  }
+
+  /// Builds USSD plan for Check Wallet Limit: 171,7,7,{pin}
+  static MultiStepUssdPlan buildCheckWalletLimitPlan(Till till) {
+    if (till.network == NetworkProvider.mtn) {
+      return MultiStepUssdPlan(
+        rootCode: '*171#',
+        steps: ['7', '7'],
+        displayShortCode: '*171*7*7#',
+      );
+    } else {
+      return MultiStepUssdPlan(
+        rootCode: '*110#',
+        steps: ['5', '7'],
+        displayShortCode: '*110*5*7#',
       );
     }
   }
@@ -310,6 +390,23 @@ class UssdService {
     );
   }
 
+  /// Check if CALL_PHONE permission is granted natively
+  static Future<bool> hasPhonePermission() async {
+    try {
+      final bool? hasPerm = await _channel.invokeMethod<bool>('hasPhonePermission');
+      return hasPerm ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Request phone permission natively
+  static Future<void> requestPhonePermission() async {
+    try {
+      await _channel.invokeMethod('requestPhonePermission');
+    } catch (_) {}
+  }
+
   /// Initiates automated multi-step USSD session with arbitrary root code and step sequence
   static Future<bool> initiateCustomAutomatedSession({
     required String rootCode,
@@ -318,16 +415,15 @@ class UssdService {
     int simSlot = 0,
   }) async {
     try {
-      final status = await Permission.phone.request();
-      if (status.isGranted) {
-        final bool? success = await _channel.invokeMethod<bool>('initiateMultiStepUssd', {
-          'rootCode': rootCode,
-          'steps': steps,
-          'simSlot': simSlot,
-        });
-        if (success == true) return true;
-      }
-    } catch (_) {}
+      final bool? success = await _channel.invokeMethod<bool>('initiateMultiStepUssd', {
+        'rootCode': rootCode,
+        'steps': steps,
+        'simSlot': simSlot,
+      });
+      if (success == true) return true;
+    } catch (e) {
+      debugPrint('initiateMultiStepUssd channel call error: $e');
+    }
 
     return dialUssd(fallbackShortCode ?? rootCode, simSlot: simSlot);
   }
@@ -335,20 +431,23 @@ class UssdService {
   /// Single code dialer
   static Future<bool> dialUssd(String ussdCode, {int simSlot = 0}) async {
     try {
-      final status = await Permission.phone.request();
-      if (status.isGranted) {
-        final bool? success = await _channel.invokeMethod<bool>('initiateUssd', {
-          'ussdCode': ussdCode,
-          'simSlot': simSlot,
-        });
-        if (success == true) return true;
-      }
-    } catch (_) {}
+      final bool? success = await _channel.invokeMethod<bool>('initiateUssd', {
+        'ussdCode': ussdCode,
+        'simSlot': simSlot,
+      });
+      if (success == true) return true;
+    } catch (e) {
+      debugPrint('initiateUssd channel call error: $e');
+    }
 
-    final encodedCode = ussdCode.replaceAll('#', '%23');
-    final Uri uri = Uri.parse('tel:$encodedCode');
-    if (await canLaunchUrl(uri)) {
-      return await launchUrl(uri);
+    try {
+      final encodedCode = ussdCode.replaceAll('#', '%23');
+      final Uri uri = Uri.parse('tel:$encodedCode');
+      if (await canLaunchUrl(uri)) {
+        return await launchUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('canLaunchUrl error: $e');
     }
     return false;
   }

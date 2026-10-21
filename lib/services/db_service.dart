@@ -8,7 +8,7 @@ import '../models/mobiboss_models.dart';
 class DbService {
   static Database? _db;
   static const String _dbName = 'mobiboss.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
 
   static Future<Database> get database async {
     if (_db != null) return _db!;
@@ -23,6 +23,13 @@ class DbService {
     return await openDatabase(
       path,
       version: _dbVersion,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          try {
+            await db.execute('ALTER TABLE closed_shifts ADD COLUMN denomination TEXT');
+          } catch (_) {}
+        }
+      },
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE transactions (
@@ -122,7 +129,8 @@ class DbService {
             totalCommissions REAL,
             transactionCount INTEGER,
             status TEXT,
-            aiDiagnosis TEXT
+            aiDiagnosis TEXT,
+            denomination TEXT
           )
         ''');
 
@@ -404,13 +412,39 @@ class DbService {
   // ==========================================
   static Future<void> insertShift(ShiftRecord s) async {
     final db = await database;
-    await db.insert('closed_shifts', s.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    final map = s.toJson();
+    if (map['denomination'] != null && map['denomination'] is! String) {
+      map['denomination'] = jsonEncode(map['denomination']);
+    }
+    await db.insert('closed_shifts', map, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  static Future<List<ShiftRecord>> getClosedShifts({int limit = 50}) async {
+  static Future<List<ShiftRecord>> getClosedShifts({int limit = 100, int offset = 0}) async {
     final db = await database;
-    final maps = await db.query('closed_shifts', orderBy: 'endTime DESC', limit: limit);
+    final maps = await db.query(
+      'closed_shifts',
+      orderBy: 'endTime DESC',
+      limit: limit,
+      offset: offset,
+    );
     return maps.map((m) => ShiftRecord.fromJson(m)).toList();
+  }
+
+  static Future<List<ShiftRecord>> getShiftsInRange(DateTime start, DateTime end) async {
+    final db = await database;
+    final maps = await db.query(
+      'closed_shifts',
+      where: 'endTime >= ? AND endTime <= ?',
+      whereArgs: [start.toIso8601String(), end.toIso8601String()],
+      orderBy: 'endTime DESC',
+    );
+    return maps.map((m) => ShiftRecord.fromJson(m)).toList();
+  }
+
+  static Future<int> getShiftCount() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM closed_shifts');
+    return Sqflite.firstIntValue(result) ?? 0;
   }
 
   // ==========================================

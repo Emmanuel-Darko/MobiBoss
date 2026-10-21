@@ -1,14 +1,18 @@
 package com.kodetech.mobiboss
 
+import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import android.text.TextUtils
 import androidx.annotation.NonNull
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -63,6 +67,21 @@ class MainActivity : FlutterFragmentActivity() {
                         result.error("SETTINGS_ERROR", e.message, null)
                     }
                 }
+                "hasPhonePermission" -> {
+                    val granted = ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.CALL_PHONE
+                    ) == PackageManager.PERMISSION_GRANTED
+                    result.success(granted)
+                }
+                "requestPhonePermission" -> {
+                    ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE),
+                        101
+                    )
+                    result.success(true)
+                }
                 "initiateMultiStepUssd" -> {
                     val rootCode = call.argument<String>("rootCode") ?: "*171#"
                     val steps = call.argument<List<String>>("steps") ?: emptyList()
@@ -72,26 +91,47 @@ class MainActivity : FlutterFragmentActivity() {
                         // Queue steps in accessibility service
                         UssdAccessibilityService.startAutomation(steps)
 
-                        // Dial initial root USSD code (e.g., *171#) with SIM slot routing
-                        val encoded = Uri.encode(rootCode)
-                        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$encoded"))
-                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        val hasCallPermission = ContextCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.CALL_PHONE
+                        ) == PackageManager.PERMISSION_GRANTED
 
-                        // Dual SIM intent extras for Samsung One UI & Android
-                        intent.putExtra("com.android.phone.extra.slot", simSlot)
-                        intent.putExtra("simSlot", simSlot)
-                        intent.putExtra("android.telephony.extra.SLOT_INDEX", simSlot)
-                        intent.putExtra("subscription", simSlot)
+                        if (hasCallPermission) {
+                            // Dial initial root USSD code (e.g., *171#) with SIM slot routing
+                            val encoded = Uri.encode(rootCode)
+                            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$encoded"))
+                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
 
-                        startActivity(intent)
-                        result.success(true)
+                            // Dual SIM intent extras for Samsung One UI & Android
+                            intent.putExtra("com.android.phone.extra.slot", simSlot)
+                            intent.putExtra("simSlot", simSlot)
+                            intent.putExtra("android.telephony.extra.SLOT_INDEX", simSlot)
+                            intent.putExtra("subscription", simSlot)
+
+                            startActivity(intent)
+                            result.success(true)
+                        } else {
+                            // Request CALL_PHONE runtime permission so subsequent calls auto-dial directly
+                            ActivityCompat.requestPermissions(
+                                this,
+                                arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE),
+                                101
+                            )
+
+                            // Fallback to ACTION_DIAL immediately so user is never blocked
+                            val encoded = Uri.encode(rootCode)
+                            val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$encoded"))
+                            dialIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            startActivity(dialIntent)
+                            result.success(true)
+                        }
                     } catch (e: Exception) {
                         try {
                             val encoded = Uri.encode(rootCode)
                             val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$encoded"))
                             dialIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                             startActivity(dialIntent)
-                            result.success(false)
+                            result.success(true)
                         } catch (e2: Exception) {
                             result.error("USSD_FAILED", e2.message, null)
                         }
@@ -102,24 +142,42 @@ class MainActivity : FlutterFragmentActivity() {
                     val simSlot = call.argument<Int>("simSlot") ?: 0
                     if (ussdCode != null) {
                         try {
-                            val encoded = Uri.encode(ussdCode)
-                            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$encoded"))
-                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            val hasCallPermission = ContextCompat.checkSelfPermission(
+                                this,
+                                Manifest.permission.CALL_PHONE
+                            ) == PackageManager.PERMISSION_GRANTED
 
-                            intent.putExtra("com.android.phone.extra.slot", simSlot)
-                            intent.putExtra("simSlot", simSlot)
-                            intent.putExtra("android.telephony.extra.SLOT_INDEX", simSlot)
-                            intent.putExtra("subscription", simSlot)
+                            if (hasCallPermission) {
+                                val encoded = Uri.encode(ussdCode)
+                                val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$encoded"))
+                                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
 
-                            startActivity(intent)
-                            result.success(true)
+                                intent.putExtra("com.android.phone.extra.slot", simSlot)
+                                intent.putExtra("simSlot", simSlot)
+                                intent.putExtra("android.telephony.extra.SLOT_INDEX", simSlot)
+                                intent.putExtra("subscription", simSlot)
+
+                                startActivity(intent)
+                                result.success(true)
+                            } else {
+                                ActivityCompat.requestPermissions(
+                                    this,
+                                    arrayOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE),
+                                    101
+                                )
+                                val encoded = Uri.encode(ussdCode)
+                                val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$encoded"))
+                                dialIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                startActivity(dialIntent)
+                                result.success(true)
+                            }
                         } catch (e: Exception) {
                             try {
                                 val encoded = Uri.encode(ussdCode)
                                 val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$encoded"))
                                 dialIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                 startActivity(dialIntent)
-                                result.success(false)
+                                result.success(true)
                             } catch (e2: Exception) {
                                 result.error("USSD_FAILED", e2.message, null)
                             }

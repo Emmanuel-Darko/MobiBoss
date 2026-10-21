@@ -190,6 +190,52 @@ class StorageService {
     return _prefs?.getBool(_keyAppLock) ?? false;
   }
 
+  // ─── Shop Profile ───
+  static const String _keyShopProfile = 'momo_shop_profile';
+  static Future<void> saveShopProfile(ShopProfile profile) async {
+    await init();
+    await _prefs?.setString(_keyShopProfile, jsonEncode(profile.toJson()));
+  }
+
+  static Future<ShopProfile> loadShopProfile() async {
+    await init();
+    final str = _prefs?.getString(_keyShopProfile);
+    if (str == null) return ShopProfile();
+    try {
+      return ShopProfile.fromJson(jsonDecode(str) as Map<String, dynamic>);
+    } catch (_) {
+      return ShopProfile();
+    }
+  }
+
+  // ─── Owner Security PIN ───
+  static const String _keyOwnerPin = 'momo_owner_pin';
+  static Future<void> saveOwnerPin(String? pin) async {
+    await init();
+    if (pin == null || pin.isEmpty) {
+      await _prefs?.remove(_keyOwnerPin);
+    } else {
+      await _prefs?.setString(_keyOwnerPin, pin);
+    }
+  }
+
+  static Future<String?> loadOwnerPin() async {
+    await init();
+    return _prefs?.getString(_keyOwnerPin);
+  }
+
+  // ─── Onboarding Tour Completion ───
+  static const String _keyOnboardingCompleted = 'momo_onboarding_completed';
+  static Future<void> saveHasCompletedOnboarding(bool completed) async {
+    await init();
+    await _prefs?.setBool(_keyOnboardingCompleted, completed);
+  }
+
+  static Future<bool> loadHasCompletedOnboarding() async {
+    await init();
+    return _prefs?.getBool(_keyOnboardingCompleted) ?? false;
+  }
+
   // ─── Clear All Storage (For Reset) ───
   static Future<void> clearAll() async {
     await init();

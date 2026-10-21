@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/mobiboss_models.dart';
 import '../providers/mobiboss_provider.dart';
 import '../services/receipt_service.dart';
+import 'shift_history_screen.dart';
+import '../widgets/denomination_counter.dart';
+import '../widgets/reconciliation_dashboard.dart';
+import '../widgets/reconciliation_stepper.dart';
+import '../widgets/sms_records_list.dart';
 import '../widgets/top_toast.dart';
-import 'shift_handover_screen.dart';
 
 class ReconciliationScreen extends StatefulWidget {
   const ReconciliationScreen({super.key});
@@ -14,66 +19,90 @@ class ReconciliationScreen extends StatefulWidget {
   State<ReconciliationScreen> createState() => _ReconciliationScreenState();
 }
 
-class _ReconciliationScreenState extends State<ReconciliationScreen> {
-  final TextEditingController _cashController = TextEditingController();
-  bool _isProvidersCollapsed = true;
+class _ReconciliationScreenState extends State<ReconciliationScreen> with AutomaticKeepAliveClientMixin {
+  static final _currencyFormatter = NumberFormat('#,##0.00', 'en_US');
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _step1Key = GlobalKey();
+  final GlobalKey _step2Key = GlobalKey();
+  final GlobalKey _step3Key = GlobalKey();
+
+  bool _step1Expanded = true;
+  bool _step2Expanded = true;
+  bool _step3Expanded = true;
+
+  /// Tracks the shift number seen last time — detects when a new shift begins.
+  int _trackedShiftNumber = -1;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
-    final provider = context.read<MoMoProvider>();
-    _cashController.text = provider.currentCashInDrawer.toStringAsFixed(2);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final provider = context.read<MoMoProvider>();
+      _trackedShiftNumber = provider.currentShiftNumber;
+      if (provider.smsRecords.isEmpty && !provider.isScanningInbox) {
+        provider.scanDeviceInboxAndDiscoverSenders(context);
+      }
+    });
+  }
+
+  /// Called by Consumer/builder on each rebuild — checks if a new shift started.
+  void _checkShiftReset(MoMoProvider provider) {
+    if (_trackedShiftNumber != -1 && provider.currentShiftNumber != _trackedShiftNumber) {
+      _trackedShiftNumber = provider.currentShiftNumber;
+      // Reset UI state for the fresh shift
+      setState(() {
+        _step1Expanded = true;
+        _step2Expanded = true;
+        _step3Expanded = true;
+      });
+      // Kick off an inbox scan for the next teller
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (provider.smsRecords.isEmpty && !provider.isScanningInbox) {
+          provider.scanDeviceInboxAndDiscoverSenders(context);
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
-    _cashController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  Color _getTypeColor(TransactionType type) {
-    switch (type) {
-      case TransactionType.cashIn:
-        return const Color(0xFF1E8E3E);
-      case TransactionType.cashOut:
-        return const Color(0xFFD93025);
-      case TransactionType.airtime:
-        return const Color(0xFFE37400);
-      case TransactionType.dataBundle:
-        return const Color(0xFF1A73E8);
-      case TransactionType.floatTransfer:
-        return const Color(0xFF9334E6);
-      case TransactionType.ecgElectricity:
-        return const Color(0xFFF9AB00);
-      case TransactionType.ghanaWater:
-        return const Color(0xFF005696);
-      case TransactionType.payTv:
-        return const Color(0xFF8E24AA);
-      case TransactionType.bankTransfer:
-        return const Color(0xFF2E7D32);
-    }
-  }
+  void _scrollToStep(int stepIndex) {
+    setState(() {
+      if (stepIndex == 0) _step1Expanded = true;
+      if (stepIndex == 1) _step2Expanded = true;
+      if (stepIndex == 2 || stepIndex == 3) _step3Expanded = true;
+    });
 
-  String _getTypeLabel(TransactionType type) {
-    switch (type) {
-      case TransactionType.cashIn:
-        return 'CASH IN';
-      case TransactionType.cashOut:
-        return 'CASH OUT';
-      case TransactionType.airtime:
-        return 'AIRTIME';
-      case TransactionType.dataBundle:
-        return 'DATA';
-      case TransactionType.floatTransfer:
-        return 'FLOAT';
-      case TransactionType.ecgElectricity:
-        return 'ECG POWER';
-      case TransactionType.ghanaWater:
-        return 'WATER';
-      case TransactionType.payTv:
-        return 'PAY TV';
-      case TransactionType.bankTransfer:
-        return 'BANK';
+    GlobalKey? targetKey;
+    switch (stepIndex) {
+      case 0:
+        targetKey = _step1Key;
+        break;
+      case 1:
+        targetKey = _step2Key;
+        break;
+      case 2:
+      case 3:
+        targetKey = _step3Key;
+        break;
+    }
+
+    if (targetKey?.currentContext != null) {
+      Scrollable.ensureVisible(
+        targetKey!.currentContext!,
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeInOut,
+        alignment: 0.05,
+      );
     }
   }
 
@@ -103,29 +132,72 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
     }
   }
 
+  Future<void> _handleScanInbox(BuildContext context, MoMoProvider provider) async {
+    await provider.scanDeviceInboxAndDiscoverSenders(context);
+  }
+
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final provider = context.watch<MoMoProvider>();
+    _checkShiftReset(provider); // Reset UI state if a new shift has started
     final result = provider.lastReconciliation;
     final discoveredSenders = provider.discoveredSenders;
-    final selectedSenders = provider.selectedSenders;
     final isScanning = provider.isScanningInbox;
     final period = provider.reconciliationPeriod;
     final filteredRecords = provider.filteredSmsRecords;
-    final dateFormat = DateFormat('hh:mm a • d MMM');
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final currentStep = provider.currentStepperIndex;
+    final isScanDone = provider.isScanComplete;
+    final isCountDone = provider.isCashCounted;
+    final isReviewedDone = result != null;
 
     return SingleChildScrollView(
+      controller: _scrollController,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ─── Shift Header & History Action ───
+          // ─── Top Shift Header & History Action ───
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Shift #${provider.currentShiftNumber} Audit',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A73E8).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Shift #${provider.currentShiftNumber}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Color(0xFF1A73E8),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Audit & Settlement',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      Text(
+                        'Started ${DateFormat('hh:mm a').format(provider.currentShiftStartTime)} • ${provider.shiftElapsedTimeDisplay}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
@@ -133,592 +205,792 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
                 icon: const Icon(Icons.history_rounded, size: 16),
-                label: Text('Shift History (${provider.shiftHistory.length})', style: const TextStyle(fontSize: 11)),
-                onPressed: () => _showShiftHistoryModal(context, provider),
+                label: Text(
+                  'History (${provider.shiftHistory.length})',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ShiftHistoryScreen(),
+                    ),
+                  );
+                },
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
 
-          // ─── 1. Scan SMS Inbox Button ───
-          FilledButton.tonalIcon(
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            icon: isScanning
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync_rounded, size: 20),
-            label: Text(
-              isScanning
-                  ? 'Scanning Inbox...'
-                  : discoveredSenders.isEmpty
-                      ? 'Scan SMS Inbox for Payment Providers'
-                      : 'Rescan Device Inbox (${discoveredSenders.length} Providers Found)',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-            ),
-            onPressed: isScanning
-                ? null
-                : () => provider.scanDeviceInboxAndDiscoverSenders(context),
+          // ─── Top Hero Live Variance Banner (The "Answer First" Experience) ───
+          _buildTopHeroVarianceBanner(context, provider, result, isDark),
+          const SizedBox(height: 12),
+
+          // ─── Guided Step Progress Stepper Bar ───
+          ReconciliationStepper(
+            currentStep: currentStep,
+            isScanDone: isScanDone,
+            isCountDone: isCountDone,
+            isReviewedDone: isReviewedDone,
+            onStepTapped: _scrollToStep,
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
 
-          // ─── 2. Payment Provider Selection (Collapsible Card) ───
-          if (discoveredSenders.isNotEmpty) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InkWell(
-                      onTap: () => setState(() => _isProvidersCollapsed = !_isProvidersCollapsed),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.account_tree_rounded, size: 18, color: Color(0xFF1A73E8)),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _isProvidersCollapsed
-                                      ? 'Reconciling: ${selectedSenders.length} of ${discoveredSenders.length} Providers'
-                                      : 'Payment Providers (${discoveredSenders.length})',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                ),
-                              ],
-                            ),
-                            Row(
-                              children: [
-                                Text(
-                                  _isProvidersCollapsed ? 'Expand ▾' : 'Collapse ▴',
-                                  style: const TextStyle(fontSize: 11, color: Color(0xFF1A73E8), fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(width: 4),
-                                Icon(
-                                  _isProvidersCollapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
-                                  size: 18,
-                                  color: const Color(0xFF1A73E8),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (!_isProvidersCollapsed) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Select which telecom & fintech SMS to reconcile:',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF5F6368)),
-                          ),
-                          Row(
-                            children: [
-                              _buildMiniAction(label: 'All', onTap: () => provider.selectAllSenders()),
-                              const SizedBox(width: 6),
-                              _buildMiniAction(label: 'None', onTap: () => provider.clearSenderSelection()),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: discoveredSenders.values.map((info) {
-                          final isSelected = selectedSenders.contains(info.address);
-                          final catColor = _getCategoryColor(info.category);
-                          return FilterChip(
-                            avatar: Icon(
-                              _getCategoryIcon(info.category),
-                              size: 14,
-                              color: isSelected ? Colors.white : catColor,
-                            ),
-                            label: Text(
-                              '${info.address} (${info.parsedTransactions})',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: isSelected
-                                    ? Colors.white
-                                    : (Theme.of(context).brightness == Brightness.dark
-                                        ? const Color(0xFFE8EAED)
-                                        : const Color(0xFF3C4043)),
-                              ),
-                            ),
-                            selected: isSelected,
-                            selectedColor: const Color(0xFF1A73E8),
-                            checkmarkColor: Colors.white,
-                            onSelected: (_) => provider.toggleSenderSelection(info.address),
-                            visualDensity: VisualDensity.compact,
-                          );
-                        }).toList(),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+          // ═══════════════════════════════════════════════════════════════════
+          // STEP 1: SCAN CARRIER PAYMENT MESSAGES (Accordion Card)
+          // ═══════════════════════════════════════════════════════════════════
+          _buildAccordionHeader(
+            stepBadge: 'STEP 1',
+            title: 'Scan Carrier Payment Messages',
+            icon: Icons.mark_email_read_rounded,
+            color: const Color(0xFF1A73E8),
+            isCompleted: isScanDone,
+            completionBadge: isScanDone ? '${provider.smsRecords.length} SMS Synced' : '',
+            isExpanded: _step1Expanded,
+            onToggle: () => setState(() => _step1Expanded = !_step1Expanded),
+            key: _step1Key,
+          ),
+          if (_step1Expanded) ...[
+            const SizedBox(height: 8),
+            _buildStep1ScanCard(context, provider, isDark, isScanning, discoveredSenders.isNotEmpty, period),
             const SizedBox(height: 12),
-          ],
 
-          // ─── 3. Reconciliation Period Selector (Horizontally Scrollable to Prevent Overflow) ───
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                Text(
-                  'Shift Period:',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? const Color(0xFF9AA0A6)
-                        : const Color(0xFF5F6368),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _buildPeriodChip('Today', 'today', period, provider),
-                const SizedBox(width: 6),
-                _buildPeriodChip('Current Shift (8h)', 'shift', period, provider),
-                const SizedBox(width: 6),
-                _buildPeriodChip('Last 24h', '24h', period, provider),
-                const SizedBox(width: 6),
-                _buildPeriodChip('All Time', 'all', period, provider),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
+            // Period Selector (Segmented Button)
+            _buildPeriodSelector(context, provider, isDark, period),
+            const SizedBox(height: 12),
 
-          // ─── 4. Physical Cash Count Input ───
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Counted Cash in Physical Drawer',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                      ),
-                      Icon(Icons.point_of_sale_rounded, color: Color(0xFF1A73E8), size: 20),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Count all physical bank notes and coins in your cash drawer:',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? const Color(0xFF9AA0A6)
-                          : const Color(0xFF5F6368),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _cashController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                    decoration: InputDecoration(
-                      labelText: 'Counted Physical Cash (GHS)',
-                      prefixText: 'GHS ',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      filled: true,
-                      fillColor: Theme.of(context).cardColor,
-                    ),
-                    onChanged: (val) {
-                      final parsed = double.tryParse(val);
-                      if (parsed != null && parsed >= 0) {
-                        provider.reconcileShift(physicalCash: parsed);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // ─── 4b. Drawer Petty Cash Expenses Logger ───
-          _buildPettyCashCard(context, provider),
-          const SizedBox(height: 14),
-
-          // ─── 5. Live Reconciliation Variance & EOD Settlement Card ───
-          if (result != null) ...[
-            _buildResultCard(result, provider),
-            const SizedBox(height: 16),
-          ],
-
-          // ─── 6. Active Reconciled SMS Records Feed ───
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Active SMS Records',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              ),
-              if (period != 'all')
-                Text(
-                  'Filtered by $period',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? const Color(0xFF9AA0A6)
-                        : const Color(0xFF5F6368),
-                  ),
-                ),
+            // Inline Network Provider Selection (Smart Chips)
+            if (discoveredSenders.isNotEmpty) ...[
+              _buildInlineProviderSummary(context, provider, isDark),
+              const SizedBox(height: 12),
             ],
+          ],
+          const SizedBox(height: 12),
+
+          // ═══════════════════════════════════════════════════════════════════
+          // STEP 2: PHYSICAL CASH COUNT & PETTY CASH (Accordion Card)
+          // ═══════════════════════════════════════════════════════════════════
+          _buildAccordionHeader(
+            stepBadge: 'STEP 2',
+            title: 'Count Cash in Drawer',
+            icon: Icons.payments_rounded,
+            color: const Color(0xFFE37400),
+            isCompleted: isCountDone,
+            completionBadge: isCountDone ? 'GHS ${_currencyFormatter.format(provider.currentCashInDrawer)}' : '',
+            isExpanded: _step2Expanded,
+            onToggle: () => setState(() => _step2Expanded = !_step2Expanded),
+            key: _step2Key,
           ),
-          const SizedBox(height: 8),
-
-          if (filteredRecords.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Center(
-                  child: Column(
-                    children: [
-                      const Icon(Icons.inbox_outlined, size: 36, color: Color(0xFFBDC1C6)),
-                      const SizedBox(height: 8),
-                      Text(
-                        discoveredSenders.isEmpty
-                            ? 'No scanned messages yet. Tap "Scan SMS Inbox" above.'
-                            : 'No messages match the active provider filters or time period.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).brightness == Brightness.dark
-                              ? const Color(0xFF9AA0A6)
-                              : const Color(0xFF5F6368),
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: filteredRecords.length,
-              itemBuilder: (context, index) {
-                final record = filteredRecords[index];
-                final isCashIn = record.type == TransactionType.cashIn ||
-                    record.type == TransactionType.airtime ||
-                    record.type == TransactionType.dataBundle ||
-                    record.type == TransactionType.ecgElectricity ||
-                    record.type == TransactionType.ghanaWater ||
-                    record.type == TransactionType.payTv;
-
-                final color = _getTypeColor(record.type);
-                final label = _getTypeLabel(record.type);
-                final isDark = Theme.of(context).brightness == Brightness.dark;
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 14,
-                          backgroundColor: color.withValues(alpha: 0.12),
-                          child: Icon(
-                            isCashIn ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-                            size: 14,
-                            color: color,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    label,
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: color),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      record.sender,
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                        color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Builder(builder: (ctx) {
-                                    final fraud = provider.checkSmsFraud(record);
-                                    if (fraud.isFraudSuspicious) {
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: isDark ? const Color(0xFF4A1818) : const Color(0xFFFCE8E6),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(Icons.warning_amber_rounded, size: 10, color: Color(0xFFD93025)),
-                                            const SizedBox(width: 2),
-                                            Text(
-                                              'Suspicious',
-                                              style: TextStyle(
-                                                fontSize: 8,
-                                                fontWeight: FontWeight.bold,
-                                                color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }
-                                    return Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: isDark ? const Color(0xFF13321C) : const Color(0xFFE6F4EA),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.verified_rounded, size: 10, color: Color(0xFF1E8E3E)),
-                                          const SizedBox(width: 2),
-                                          Text(
-                                            'Verified',
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.bold,
-                                              color: isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                '${record.customerPhone.isNotEmpty ? "${record.customerPhone} • " : ""}${record.reference}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                dateFormat.format(record.timestamp),
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  color: isDark ? const Color(0xFF80868B) : const Color(0xFF80868B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Text(
-                          '${isCashIn ? '+' : '-'} GHS ${record.amount.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            color: isCashIn ? const Color(0xFF1E8E3E) : const Color(0xFFD93025),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
+          if (_step2Expanded) ...[
+            const SizedBox(height: 8),
+            DenominationCounterWidget(
+              initialDenomination: provider.cashDenomination,
+              currentTotal: provider.currentCashInDrawer,
+              onDenominationChanged: (denom) {
+                HapticFeedback.selectionClick();
+                provider.updateCashDenomination(denom);
+              },
+              onDirectTotalChanged: (total) {
+                HapticFeedback.selectionClick();
+                provider.reconcileShift(physicalCash: total);
+                if (total > 0) {
+                  setState(() => _step3Expanded = true);
+                  _scrollToStep(2);
+                }
               },
             ),
+            const SizedBox(height: 12),
+
+            // Petty Cash Logger Section
+            _buildPettyCashCard(context, provider),
+          ],
+          const SizedBox(height: 12),
+
+          // ═══════════════════════════════════════════════════════════════════
+          // STEP 3: RECONCILIATION DASHBOARD & SETTLEMENT (Accordion Card)
+          // ═══════════════════════════════════════════════════════════════════
+          _buildAccordionHeader(
+            stepBadge: 'STEP 3',
+            title: 'Shift Balance & Settlement',
+            icon: Icons.verified_rounded,
+            color: const Color(0xFF1E8E3E),
+            isCompleted: isReviewedDone,
+            completionBadge: result != null ? result.status : '',
+            isExpanded: _step3Expanded,
+            onToggle: () => setState(() => _step3Expanded = !_step3Expanded),
+            key: _step3Key,
+          ),
+          if (_step3Expanded) ...[
+            const SizedBox(height: 8),
+            if (result != null) ...[
+              ReconciliationDashboardWidget(
+                result: result,
+                provider: provider,
+                onCloseShift: () => _showShiftCloseDialog(context, provider),
+              ),
+              const SizedBox(height: 16),
+            ] else ...[
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED)),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Center(
+                    child: Text(
+                      'Complete Step 1 (Scan Messages) and Step 2 (Count Cash) above to view your settlement dashboard.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // Active Reconciled SMS Feed
+            SmsRecordsListWidget(
+              records: filteredRecords,
+              provider: provider,
+              activePeriod: period,
+            ),
+          ],
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
-  Widget _buildMiniAction({required String label, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          border: Border.all(color: const Color(0xFFDADCE0)),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8))),
-      ),
-    );
-  }
+  Widget _buildTopHeroVarianceBanner(BuildContext context, MoMoProvider provider, ReconciliationResult? result, bool isDark) {
+    final isCalculated = result != null;
+    final isBalanced = result?.status == 'BALANCED';
+    final isShortage = result?.status == 'SHORTAGE';
 
-  Widget _buildPeriodChip(String label, String value, String currentPeriod, MoMoProvider provider) {
-    final isSelected = currentPeriod == value;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ChoiceChip(
-      label: Text(
-        label,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: isSelected ? Colors.white : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF5F6368)),
-        ),
-      ),
-      selected: isSelected,
-      selectedColor: const Color(0xFF1A73E8),
-      onSelected: (_) => provider.setReconciliationPeriod(value),
-      visualDensity: VisualDensity.compact,
-    );
-  }
+    final Color statusColor = !isCalculated
+        ? const Color(0xFF1A73E8)
+        : isBalanced
+            ? const Color(0xFF1E8E3E)
+            : isShortage
+                ? const Color(0xFFD93025)
+                : const Color(0xFF1A73E8);
 
-  Widget _buildResultCard(ReconciliationResult result, MoMoProvider provider) {
-    final isBalanced = result.status == 'BALANCED';
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark
-        ? (isBalanced ? const Color(0xFF0F3818) : const Color(0xFF3E1210))
-        : (isBalanced ? const Color(0xFFE6F4EA) : const Color(0xFFFCE8E6));
-    final fgColor = isDark
-        ? (isBalanced ? const Color(0xFF81C995) : const Color(0xFFF28B82))
-        : (isBalanced ? const Color(0xFF1E8E3E) : const Color(0xFFD93025));
+    final Color statusBg = isDark
+        ? (!isCalculated
+            ? const Color(0xFF161E2E)
+            : isBalanced
+                ? const Color(0xFF0F3818)
+                : isShortage
+                    ? const Color(0xFF3E1210)
+                    : const Color(0xFF10284A))
+        : (!isCalculated
+            ? const Color(0xFFEEF4FD)
+            : isBalanced
+                ? const Color(0xFFE6F4EA)
+                : isShortage
+                    ? const Color(0xFFFCE8E6)
+                    : const Color(0xFFE8F0FE));
 
     return Card(
-      color: bgColor,
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: fgColor.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: statusColor.withValues(alpha: 0.35), width: 1.5),
       ),
+      color: statusBg,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                Icon(
-                  isBalanced ? Icons.check_circle_rounded : Icons.warning_amber_rounded,
-                  color: fgColor,
-                  size: 22,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    isBalanced
-                        ? 'BALANCED — Drawer matches transactions'
-                        : '${result.status}: GHS ${result.cashVariance.abs().toStringAsFixed(2)}',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: fgColor),
-                    overflow: TextOverflow.ellipsis,
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: statusColor.withValues(alpha: 0.18),
+                  child: Icon(
+                    !isCalculated
+                        ? Icons.hourglass_top_rounded
+                        : isBalanced
+                            ? Icons.check_circle_rounded
+                            : isShortage
+                                ? Icons.warning_amber_rounded
+                                : Icons.arrow_circle_up_rounded,
+                    color: statusColor,
+                    size: 20,
                   ),
                 ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        !isCalculated
+                            ? 'AWAITING DRAWER COUNT'
+                            : isBalanced
+                                ? 'BALANCED DRAWER'
+                                : '${result.status}: GHS ${_currencyFormatter.format(result.cashVariance.abs())}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: statusColor,
+                        ),
+                      ),
+                      Text(
+                        !isCalculated
+                            ? 'Enter physical cash in Step 2 to compute live variance'
+                            : isBalanced
+                                ? 'Physical cash matches all POS inflows, outflows & float'
+                                : isShortage
+                                    ? 'Physical cash is less than expected drawer total'
+                                    : 'Physical cash exceeds expected drawer total',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isCalculated)
+                  IconButton(
+                    tooltip: 'Send WhatsApp Report to Boss',
+                    icon: const Icon(Icons.send_rounded, color: Color(0xFF1E8E3E), size: 18),
+                    onPressed: () => provider.sendShiftSummaryToWhatsApp(context: context),
+                  ),
               ],
             ),
-            const Divider(height: 18),
-            _buildResultRow('Expected Cash in Drawer', 'GHS ${result.expectedPhysicalCash.toStringAsFixed(2)}'),
-            _buildResultRow('Counted Physical Cash', 'GHS ${result.physicalCashCount.toStringAsFixed(2)}'),
-            _buildResultRow(
-              'Total Deposits / Inflows (+)',
-              'GHS ${result.totalCashIn.toStringAsFixed(2)}',
-              color: isDark ? const Color(0xFF81C995) : const Color(0xFF1E8E3E),
-            ),
-            _buildResultRow(
-              'Total Withdrawals / Outflows (-)',
-              'GHS ${result.totalCashOut.toStringAsFixed(2)}',
-              color: isDark ? const Color(0xFFF28B82) : const Color(0xFFD93025),
-            ),
-            _buildResultRow(
-              'Petty Cash Expenses (-)',
-              'GHS ${result.totalPettyCash.toStringAsFixed(2)}',
-              color: const Color(0xFFE37400),
-            ),
-            _buildResultRow(
-              'Total Commissions Earned',
-              'GHS ${result.totalCommissions.toStringAsFixed(2)}',
-              color: const Color(0xFF1A73E8),
-            ),
-            const SizedBox(height: 8),
+            if (isCalculated) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1E2022) : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Expected Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+                          Text('GHS ${_currencyFormatter.format(result.expectedPhysicalCash)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1E2022) : Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Counted Cash', style: TextStyle(fontSize: 9, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+                          Text('GHS ${_currencyFormatter.format(result.physicalCashCount)}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: statusColor)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAccordionHeader({
+    required String stepBadge,
+    required String title,
+    required IconData icon,
+    required Color color,
+    required bool isCompleted,
+    required String completionBadge,
+    required bool isExpanded,
+    required VoidCallback onToggle,
+    Key? key,
+  }) {
+    return InkWell(
+      key: key,
+      onTap: onToggle,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+        child: Row(
+          children: [
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white.withValues(alpha: 0.85),
-                borderRadius: BorderRadius.circular(8),
+                color: (isCompleted ? const Color(0xFF1E8E3E) : color).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                result.aiDiagnosis,
-                style: TextStyle(fontSize: 11, color: isDark ? const Color(0xFFE8EAED) : const Color(0xFF3C4043)),
+                stepBadge,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  color: isCompleted ? const Color(0xFF1E8E3E) : color,
+                ),
               ),
             ),
-            const SizedBox(height: 12),
-
-            // ─── Shift Handover & Close Actions ───
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    icon: const Icon(Icons.swap_horizontal_circle_rounded, size: 18),
-                    label: const Text(
-                      'Shift Handover',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ShiftHandoverScreen()),
-                      );
-                    },
-                  ),
+            const SizedBox(width: 8),
+            Icon(
+              isCompleted ? Icons.check_circle_rounded : icon,
+              size: 16,
+              color: isCompleted ? const Color(0xFF1E8E3E) : color,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ),
+            if (isCompleted && completionBadge.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E8E3E).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: isDark ? const Color(0xFF1A73E8) : const Color(0xFF202124),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    icon: const Icon(Icons.lock_clock_rounded, size: 18),
-                    label: Text(
-                      'Close Shift #${provider.currentShiftNumber}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onPressed: () => _showShiftCloseDialog(context, provider),
-                  ),
+                child: Text(
+                  completionBadge,
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E8E3E)),
                 ),
-              ],
+              ),
+              const SizedBox(width: 6),
+            ],
+            Icon(
+              isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+              size: 20,
+              color: Colors.grey,
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStep1ScanCard(
+    BuildContext context,
+    MoMoProvider provider,
+    bool isDark,
+    bool isScanning,
+    bool hasScanned,
+    String period,
+  ) {
+    String scanButtonText;
+    if (isScanning) {
+      scanButtonText = 'Scanning SMS Inbox...';
+    } else if (hasScanned) {
+      scanButtonText = 'RESCAN (${provider.smsRecords.length} Transactions Found)';
+    } else if (period == 'shift') {
+      scanButtonText = 'SCAN MY SHIFT MESSAGES';
+    } else if (period == 'today') {
+      scanButtonText = "SCAN TODAY'S MESSAGES";
+    } else {
+      scanButtonText = 'SCAN ALL MESSAGES';
+    }
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: hasScanned
+              ? const Color(0xFF1E8E3E).withValues(alpha: 0.4)
+              : const Color(0xFF1A73E8),
+          width: hasScanned ? 1 : 1.5,
+        ),
+      ),
+      color: isDark
+          ? (hasScanned ? const Color(0xFF132B1B) : const Color(0xFF10284A))
+          : (hasScanned ? const Color(0xFFF1F8F4) : const Color(0xFFEEF4FD)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: (hasScanned ? const Color(0xFF1E8E3E) : const Color(0xFF1A73E8)).withValues(alpha: 0.15),
+                  child: Icon(
+                    hasScanned ? Icons.check_circle_rounded : Icons.mark_email_read_rounded,
+                    color: hasScanned ? const Color(0xFF1E8E3E) : const Color(0xFF1A73E8),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        hasScanned ? 'SMS Inbox Synced ✓' : 'Auto-Scan Payment Messages',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        hasScanned
+                            ? '${provider.smsRecords.length} transactions imported from active providers.'
+                            : 'Scan MTN, Telecel, AT Money, and Bank confirmation SMS.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // High-Visibility Action Button
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: hasScanned
+                    ? (isDark ? const Color(0xFF1E8E3E) : const Color(0xFF137333))
+                    : const Color(0xFF1A73E8),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: isScanning
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : Icon(
+                      hasScanned ? Icons.refresh_rounded : Icons.sync_rounded,
+                      size: 18,
+                    ),
+              label: Text(
+                scanButtonText,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.3),
+              ),
+              onPressed: isScanning ? null : () => _handleScanInbox(context, provider),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPeriodSelector(
+    BuildContext context,
+    MoMoProvider provider,
+    bool isDark,
+    String currentPeriod,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E2022) : const Color(0xFFF8F9FA),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.date_range_rounded, size: 16, color: Color(0xFF1A73E8)),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Reconciliation Time Period:',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF3C4043),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A73E8).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  currentPeriod == 'shift'
+                      ? provider.shiftTimeRangeDisplay
+                      : currentPeriod == 'today'
+                          ? 'Today (00:00 → Now)'
+                          : 'Last 7 Days',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A73E8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment<String>(
+                value: 'shift',
+                label: Text('This Shift', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                icon: Icon(Icons.access_time_rounded, size: 14),
+              ),
+              ButtonSegment<String>(
+                value: 'today',
+                label: Text('Full Day', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                icon: Icon(Icons.today_rounded, size: 14),
+              ),
+              ButtonSegment<String>(
+                value: 'all',
+                label: Text('All Messages', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                icon: Icon(Icons.history_rounded, size: 14),
+              ),
+            ],
+            selected: {currentPeriod},
+            onSelectionChanged: (newSelection) {
+              if (newSelection.isNotEmpty) {
+                provider.setReconciliationPeriod(newSelection.first);
+              }
+            },
+            style: ButtonStyle(
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: WidgetStateProperty.all(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNetworkToggleChip({
+    required BuildContext context,
+    required MoMoProvider provider,
+    required NetworkProvider network,
+    required String name,
+    required Color color,
+    required bool isDark,
+  }) {
+    final isSelected = provider.isNetworkSelected(network);
+    final count = provider.networkParsedTxCount(network);
+
+    return FilterChip(
+      selected: isSelected,
+      showCheckmark: true,
+      checkmarkColor: Colors.white,
+      avatar: CircleAvatar(
+        radius: 8,
+        backgroundColor: color,
+      ),
+      label: Text(
+        '$name ($count)',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+          color: isSelected ? Colors.white : (isDark ? const Color(0xFFE8EAED) : const Color(0xFF202124)),
+        ),
+      ),
+      selectedColor: color,
+      backgroundColor: isDark ? const Color(0xFF2D2F31) : const Color(0xFFF1F3F4),
+      side: BorderSide(
+        color: isSelected ? color : (isDark ? const Color(0xFF3C4043) : const Color(0xFFDADCE0)),
+      ),
+      onSelected: (_) {
+        HapticFeedback.selectionClick();
+        provider.toggleNetworkSelection(network);
+      },
+    );
+  }
+
+  Widget _buildInlineProviderSummary(
+    BuildContext context,
+    MoMoProvider provider,
+    bool isDark,
+  ) {
+    final discovered = provider.discoveredSenders;
+    final selected = provider.selectedSenders;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E2022) : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E8E3E).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.cell_tower_rounded, color: Color(0xFF1E8E3E), size: 16),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Telecom Networks',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'Tap to filter carriers in audit',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              Row(
+                children: [
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      provider.selectAllSenders();
+                    },
+                    child: const Text('All', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () {
+                      HapticFeedback.selectionClick();
+                      provider.clearSenderSelection();
+                    },
+                    child: const Text('Clear', style: TextStyle(fontSize: 11)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // 4 Telecom Network Toggle Chips
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _buildNetworkToggleChip(
+                context: context,
+                provider: provider,
+                network: NetworkProvider.mtn,
+                name: 'MTN MoMo',
+                color: const Color(0xFFF9AB00),
+                isDark: isDark,
+              ),
+              _buildNetworkToggleChip(
+                context: context,
+                provider: provider,
+                network: NetworkProvider.telecel,
+                name: 'Telecel Cash',
+                color: const Color(0xFFD93025),
+                isDark: isDark,
+              ),
+              _buildNetworkToggleChip(
+                context: context,
+                provider: provider,
+                network: NetworkProvider.at,
+                name: 'AT Money',
+                color: const Color(0xFF1A73E8),
+                isDark: isDark,
+              ),
+              _buildNetworkToggleChip(
+                context: context,
+                provider: provider,
+                network: NetworkProvider.gmoney,
+                name: 'G-Money',
+                color: const Color(0xFF00897B),
+                isDark: isDark,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // Advanced Sender Inspector for power users
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(
+                'Advanced: ${discovered.length} individual sender address(es)',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF5F6368),
+                ),
+              ),
+              leading: const Icon(Icons.tune_rounded, size: 14),
+              children: discovered.values.map((info) {
+                final isSelected = selected.contains(info.address.toUpperCase().trim());
+                final catColor = _getCategoryColor(info.category);
+
+                return CheckboxListTile(
+                  value: isSelected,
+                  activeColor: const Color(0xFF1A73E8),
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                  secondary: CircleAvatar(
+                    radius: 12,
+                    backgroundColor: catColor.withValues(alpha: 0.15),
+                    child: Icon(_getCategoryIcon(info.category), color: catColor, size: 12),
+                  ),
+                  title: Text(info.address, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                  subtitle: Text('${info.parsedTransactions} confirmed txns', style: const TextStyle(fontSize: 9)),
+                  onChanged: (_) {
+                    HapticFeedback.selectionClick();
+                    provider.toggleSenderSelection(info.address);
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -729,8 +1001,15 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
     final totalSpent = provider.totalTodayPettyCash;
 
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: isDark ? const Color(0xFF2D2F31) : const Color(0xFFE8EAED),
+        ),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -739,7 +1018,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.shopping_bag_outlined, color: Color(0xFFE37400), size: 20),
+                    const Icon(Icons.shopping_bag_outlined, color: Color(0xFFE37400), size: 18),
                     const SizedBox(width: 8),
                     Text(
                       'Petty Cash Expenses (${expenses.length})',
@@ -749,53 +1028,58 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                 ),
                 FilledButton.tonalIcon(
                   style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    visualDensity: VisualDensity.compact,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  icon: const Icon(Icons.add_rounded, size: 16),
+                  icon: const Icon(Icons.add_rounded, size: 14),
                   label: const Text('Log Expense', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                   onPressed: () => _showAddPettyCashDialog(context, provider),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
-              'Drawer cash taken out for shop expenses, food, utilities, etc.',
+              'Drawer cash taken out for shop expenses, meals, repairs, etc.',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 10,
                 color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
               ),
             ),
             if (expenses.isNotEmpty) ...[
-              const Divider(height: 16),
+              const Divider(height: 14),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     'Total Petty Cash Spent:',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF3C4043)),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? const Color(0xFFBDC1C6) : const Color(0xFF3C4043),
+                    ),
                   ),
                   Text(
-                    'GHS ${totalSpent.toStringAsFixed(2)}',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFE37400)),
+                    'GHS ${_currencyFormatter.format(totalSpent)}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE37400)),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               ...expenses.take(3).map((exp) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
                           color: const Color(0xFFE37400).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           exp.category.name.toUpperCase(),
-                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFE37400)),
+                          style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Color(0xFFE37400)),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -807,7 +1091,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
                         ),
                       ),
                       Text(
-                        '- GHS ${exp.amount.toStringAsFixed(2)}',
+                        '- GHS ${_currencyFormatter.format(exp.amount)}',
                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFD93025)),
                       ),
                       IconButton(
@@ -845,7 +1129,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Delete GHS ${exp.amount.toStringAsFixed(2)} (${exp.category.name}) from logged shop expenses?',
+              'Delete GHS ${_currencyFormatter.format(exp.amount)} (${exp.category.name}) from logged shop expenses?',
               style: const TextStyle(fontSize: 12),
             ),
             if (provider.tellers.isNotEmpty) ...[
@@ -879,7 +1163,7 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
               TopToast.show(
                 context,
                 title: 'Petty Cash Removed',
-                message: 'Expense of GHS ${exp.amount.toStringAsFixed(2)} was removed.',
+                message: 'Expense of GHS ${_currencyFormatter.format(exp.amount)} was removed.',
                 icon: Icons.delete_outline_rounded,
                 backgroundColor: const Color(0xFF5F6368),
               );
@@ -977,44 +1261,64 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
   }
 
   void _showShiftCloseDialog(BuildContext context, MoMoProvider provider) {
-    final counted = double.tryParse(_cashController.text) ?? provider.currentCashInDrawer;
+    final counted = provider.currentCashInDrawer;
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Close Shift #${provider.currentShiftNumber}?'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.verified_rounded, color: Color(0xFF1E8E3E), size: 22),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Complete Shift #${provider.currentShiftNumber}',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Closing the shift locks current transactions, computes the final audit variance, and generates the settlement report.',
+              'Your shift audit will be saved, and your final counted cash will automatically become the opening float for your next shift.',
+              style: TextStyle(fontSize: 12),
             ),
             const SizedBox(height: 12),
-            Text('Final Counted Cash: GHS ${counted.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A73E8).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Counted Cash to Carry Forward:', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                  Text(
+                    'GHS ${_currencyFormatter.format(counted)}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A73E8)),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.share_rounded, size: 16),
-            label: const Text('Close & Share'),
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final shift = await provider.closeCurrentShift(countedCash: counted, context: context);
-              await ReceiptService.shareShiftSettlementPdf(shift: shift);
-            },
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Back')),
           FilledButton.icon(
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1E8E3E)),
-            icon: const Icon(Icons.print_rounded, size: 16),
-            label: const Text('Close & Print'),
+            icon: const Icon(Icons.check_circle_rounded, size: 16),
+            label: const Text('Confirm & Settle Shift'),
             onPressed: () async {
               Navigator.pop(ctx);
               final shift = await provider.closeCurrentShift(countedCash: counted, context: context);
-              if (context.mounted) {
-                await ReceiptService.printShiftSettlementReport(context: context, shift: shift);
-              }
+              if (!mounted) return;
+              _showPostCloseSettlementSheet(this.context, shift);
             },
           ),
         ],
@@ -1022,141 +1326,174 @@ class _ReconciliationScreenState extends State<ReconciliationScreen> {
     );
   }
 
-  void _showShiftHistoryModal(BuildContext context, MoMoProvider provider) {
-    final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
-
+  void _showPostCloseSettlementSheet(BuildContext context, ShiftRecord shift) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) {
-        final isDark = Theme.of(ctx).brightness == Brightness.dark;
-        return SizedBox(
-          height: MediaQuery.of(ctx).size.height * 0.75,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        final theme = Theme.of(ctx);
+        final isBalanced = shift.status.toUpperCase() == 'BALANCED';
+        final isShortage = shift.status.toUpperCase() == 'SHORTAGE';
+        final statusColor = isBalanced
+            ? const Color(0xFF1E8E3E)
+            : isShortage
+                ? const Color(0xFFD93025)
+                : const Color(0xFF1A73E8);
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: theme.dividerColor.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.check_circle_rounded, color: statusColor, size: 28),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Shift #${shift.shiftNumber} Closed & Settled',
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'Opening cash carried forward to next shift',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                ),
+                child: Column(
                   children: [
-                    const Text('Archived Shift Settlements', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Closing Drawer Cash:', style: TextStyle(fontSize: 12)),
+                        Text('GHS ${_currencyFormatter.format(shift.closingCash)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Cash Variance:', style: TextStyle(fontSize: 12)),
+                        Text(
+                          '${shift.cashVariance >= 0 ? "+" : ""}GHS ${_currencyFormatter.format(shift.cashVariance)} (${shift.status})',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: statusColor),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Commissions Earned:', style: TextStyle(fontSize: 12)),
+                        Text('GHS ${_currencyFormatter.format(shift.totalCommissions)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1E8E3E))),
+                      ],
+                    ),
                   ],
                 ),
-                const Divider(height: 16),
-                Expanded(
-                  child: provider.shiftHistory.isEmpty
-                      ? const Center(child: Text('No closed shifts archived yet.'))
-                      : ListView.builder(
-                          itemCount: provider.shiftHistory.length,
-                          itemBuilder: (context, index) {
-                            final shift = provider.shiftHistory[index];
-                            final isBalanced = shift.status == 'BALANCED';
-
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text('Shift #${shift.shiftNumber}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: isDark
-                                                ? (isBalanced ? const Color(0xFF0F3818) : const Color(0xFF3E1210))
-                                                : (isBalanced ? const Color(0xFFE6F4EA) : const Color(0xFFFCE8E6)),
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            shift.status,
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              color: isDark
-                                                  ? (isBalanced ? const Color(0xFF81C995) : const Color(0xFFF28B82))
-                                                  : (isBalanced ? const Color(0xFF1E8E3E) : const Color(0xFFD93025)),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${dateFormat.format(shift.startTime)} → ${dateFormat.format(shift.endTime)}',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368),
-                                      ),
-                                    ),
-                                    const Divider(height: 12),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text('In: GHS ${shift.totalCashIn.toStringAsFixed(2)} • Out: GHS ${shift.totalCashOut.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11)),
-                                        Text('Comm: GHS ${shift.totalCommissions.toStringAsFixed(2)}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8))),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        OutlinedButton.icon(
-                                          icon: const Icon(Icons.share_rounded, size: 14),
-                                          label: const Text('Share PDF', style: TextStyle(fontSize: 11)),
-                                          onPressed: () => ReceiptService.shareShiftSettlementPdf(shift: shift),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        FilledButton.icon(
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: const Color(0xFF1A73E8),
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                          ),
-                                          icon: const Icon(Icons.print_rounded, size: 14),
-                                          label: const Text('Print Slip', style: TextStyle(fontSize: 11)),
-                                          onPressed: () => ReceiptService.printShiftSettlementReport(context: context, shift: shift),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () {
+                  final provider = context.read<MoMoProvider>();
+                  provider.sendShiftSummaryToWhatsApp(context: context, shift: shift);
+                },
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Send Report to Boss (WhatsApp)'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E8E3E),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ShiftHistoryScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.insights_rounded, size: 18),
+                label: const Text('View Shift History & Analytics →'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A73E8),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => ReceiptService.printShiftSettlementReport(context: context, shift: shift),
+                      icon: const Icon(Icons.print_rounded, size: 16),
+                      label: const Text('Print Slip'),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => ReceiptService.shareShiftSettlementPdf(shift: shift),
+                      icon: const Icon(Icons.share_rounded, size: 16),
+                      label: const Text('Share PDF'),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Done & Start Next Shift'),
+              ),
+            ],
           ),
         );
       },
-    );
-  }
-
-  Widget _buildResultRow(String label, String value, {Color? color}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(fontSize: 12, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF3C4043))),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: color ?? (isDark ? const Color(0xFFE8EAED) : const Color(0xFF202124)),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

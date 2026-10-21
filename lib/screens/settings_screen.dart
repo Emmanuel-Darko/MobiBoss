@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:printing/printing.dart';
 import '../models/mobiboss_models.dart';
+import '../providers/auth_provider.dart';
 import '../providers/mobiboss_provider.dart';
 import '../services/security_service.dart';
 import '../services/receipt_service.dart';
 import '../widgets/top_toast.dart';
 import 'ussd_config_screen.dart';
 import 'shift_handover_screen.dart';
+import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,8 +25,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MoMoProvider>();
+    final auth = context.watch<AuthProvider>();
     final settings = provider.commissionSettings;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final shop = provider.shopProfile;
 
     return Scaffold(
       appBar: AppBar(
@@ -33,8 +38,84 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ─── 1. Hardware & Printing (Top Priority) ───
-          Text('1. Hardware & Thermal Printing', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+          // ─── 0. Account & Pro Subscription ───
+          Text('Account & Pro Subscription', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: auth.isLoggedIn
+                    ? (auth.hasReconciliationAccess
+                        ? const Color(0xFFE6F4EA)
+                        : const Color(0xFFFCE8E6))
+                    : const Color(0xFFE8F0FE),
+                child: Icon(
+                  auth.isLoggedIn
+                      ? (auth.hasReconciliationAccess
+                          ? Icons.verified_user_rounded
+                          : Icons.lock_clock_rounded)
+                      : Icons.account_circle_outlined,
+                  color: auth.isLoggedIn
+                      ? (auth.hasReconciliationAccess
+                          ? const Color(0xFF1E8E3E)
+                          : const Color(0xFFD93025))
+                      : const Color(0xFF1A73E8),
+                  size: 20,
+                ),
+              ),
+              title: Text(
+                auth.isLoggedIn ? (auth.user?.email ?? 'Logged In') : 'Sign In to MobiBoss',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                auth.isLoggedIn
+                    ? 'Plan: ${auth.planDisplayName} • ${auth.hasReconciliationAccess ? "${auth.daysRemaining} days remaining" : "Reconciliation Expired"}'
+                    : 'Sign in to unlock MoMo SMS reconciliation & 14-day free trial',
+                style: const TextStyle(fontSize: 11),
+              ),
+              trailing: auth.isLoggedIn
+                  ? OutlinedButton(
+                      onPressed: () => auth.signOut(),
+                      child: const Text('Sign Out'),
+                    )
+                  : FilledButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      ),
+                      child: const Text('Sign In'),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // ─── 1. Shop & Owner Profile (Top Priority) ───
+          Text('1. Shop & Owner Profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFE8F0FE),
+                child: Icon(Icons.storefront_rounded, color: Color(0xFF1A73E8), size: 20),
+              ),
+              title: Text(
+                shop.shopName,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                'Owner: ${shop.ownerName} • WhatsApp: ${shop.ownerPhone.isNotEmpty ? shop.ownerPhone : "Not Set"} • ${shop.branchLocation}',
+                style: const TextStyle(fontSize: 11),
+              ),
+              trailing: OutlinedButton(
+                onPressed: () => _showEditShopProfileDialog(context, provider),
+                child: const Text('Edit'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // ─── 2. Hardware & Printing ───
+          Text('2. Hardware & Thermal Printing', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
           const SizedBox(height: 8),
           Card(
             child: Column(
@@ -145,7 +226,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: const Icon(Icons.person_add_rounded, color: Color(0xFF1A73E8), size: 20),
                   title: const Text('Add New Shop Attendant', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                   trailing: const Icon(Icons.add_rounded, color: Color(0xFF1A73E8)),
-                  onTap: () => _showAddTellerDialog(context, provider),
+                  onTap: () async {
+                    final authorized = await SecurityService.requireOwnerPin(
+                      context,
+                      title: 'Owner Authorization',
+                      message: 'Enter Owner PIN to add a new shop attendant.',
+                    );
+                    if (authorized && context.mounted) {
+                      _showAddTellerDialog(context, provider);
+                    }
+                  },
                 ),
               ],
             ),
@@ -251,6 +341,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: provider.isBalancePrivacyEnabled,
                   onChanged: (_) => provider.toggleBalancePrivacy(),
                 ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.pin_rounded, color: Color(0xFF1A73E8)),
+                  title: const Text('Owner Security PIN', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                  subtitle: Text(
+                    provider.hasOwnerPin
+                        ? 'PIN Active • Sensitive actions require authorization'
+                        : 'No PIN set • Tap to secure settings & rates',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  trailing: OutlinedButton(
+                    onPressed: () => _showManageOwnerPinDialog(context, provider),
+                    child: Text(provider.hasOwnerPin ? 'Manage' : 'Set PIN'),
+                  ),
+                ),
               ],
             ),
           ),
@@ -262,7 +367,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Text('6. Commission Rules & Rates', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDark ? const Color(0xFF9AA0A6) : const Color(0xFF5F6368))),
               InkWell(
-                onTap: () => _showCommissionEditDialog(context, provider, _selectedNetworkScope),
+                onTap: () async {
+                  final authorized = await SecurityService.requireOwnerPin(
+                    context,
+                    title: 'Owner Authorization',
+                    message: 'Enter 4-digit Owner PIN to modify commission rates.',
+                  );
+                  if (authorized && context.mounted) {
+                    _showCommissionEditDialog(context, provider, _selectedNetworkScope);
+                  }
+                },
                 child: const Text('Edit Rates', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1A73E8))),
               ),
             ],
@@ -772,6 +886,228 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Navigator.pop(ctx);
             },
             child: const Text('Save Changes'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditShopProfileDialog(BuildContext context, MoMoProvider provider) {
+    final current = provider.shopProfile;
+    final shopNameCtrl = TextEditingController(text: current.shopName);
+    final ownerNameCtrl = TextEditingController(text: current.ownerName);
+    final ownerPhoneCtrl = TextEditingController(text: current.ownerPhone);
+    final branchCtrl = TextEditingController(text: current.branchLocation);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: Color(0xFFE8F0FE),
+              child: Icon(Icons.storefront_rounded, color: Color(0xFF1A73E8), size: 20),
+            ),
+            SizedBox(width: 10),
+            Text('Shop & Owner Profile', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: shopNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Shop / Kiosk Name',
+                  hintText: 'e.g. KODETECH MoMo Hub',
+                  prefixIcon: Icon(Icons.store_rounded, size: 20),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: ownerNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Owner Full Name',
+                  hintText: 'e.g. Kwame Mensah',
+                  prefixIcon: Icon(Icons.person_rounded, size: 20),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: ownerPhoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Owner WhatsApp Number',
+                  hintText: 'e.g. 0244123456',
+                  prefixIcon: Icon(Icons.phone_rounded, size: 20),
+                  helperText: 'Shift reports will be sent here via WhatsApp',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: branchCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Branch / Kiosk Location',
+                  hintText: 'e.g. Circle Main Station',
+                  prefixIcon: Icon(Icons.location_on_rounded, size: 20),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final updated = current.copyWith(
+                shopName: shopNameCtrl.text.trim().isNotEmpty ? shopNameCtrl.text.trim() : null,
+                ownerName: ownerNameCtrl.text.trim().isNotEmpty ? ownerNameCtrl.text.trim() : null,
+                ownerPhone: ownerPhoneCtrl.text.trim(),
+                branchLocation: branchCtrl.text.trim().isNotEmpty ? branchCtrl.text.trim() : null,
+              );
+              await provider.updateShopProfile(updated);
+              if (context.mounted) {
+                Navigator.pop(ctx);
+                TopToast.show(
+                  context,
+                  title: 'Profile Updated',
+                  message: 'Shop & Owner details saved successfully',
+                  icon: Icons.check_circle_rounded,
+                  backgroundColor: const Color(0xFF1E8E3E),
+                );
+              }
+            },
+            child: const Text('Save Profile'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showManageOwnerPinDialog(BuildContext context, MoMoProvider provider) {
+    final pinCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    final hasPin = provider.hasOwnerPin;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const CircleAvatar(
+              backgroundColor: Color(0xFFE8F0FE),
+              child: Icon(Icons.shield_rounded, color: Color(0xFF1A73E8), size: 20),
+            ),
+            const SizedBox(width: 10),
+            Text(hasPin ? 'Manage Owner PIN' : 'Set Owner PIN', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              hasPin
+                  ? 'Your 4-digit Owner PIN is currently active. You can change it or remove it.'
+                  : 'Set a 4-digit Owner PIN to prevent attendants from changing commission rates or deleting shift history.',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF5F6368)),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: pinCtrl,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              maxLength: 4,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 6),
+              decoration: InputDecoration(
+                labelText: hasPin ? 'New 4-Digit PIN' : 'Enter 4-Digit PIN',
+                hintText: '••••',
+                counterText: '',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: confirmCtrl,
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              maxLength: 4,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 6),
+              decoration: InputDecoration(
+                labelText: 'Confirm PIN',
+                hintText: '••••',
+                counterText: '',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          if (hasPin)
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () async {
+                final authorized = await SecurityService.requireOwnerPin(
+                  context,
+                  title: 'Remove Owner PIN',
+                  message: 'Enter current PIN to confirm removal.',
+                );
+                if (authorized) {
+                  await provider.setOwnerPin(null);
+                  if (context.mounted) {
+                    Navigator.pop(ctx);
+                    TopToast.show(
+                      context,
+                      title: 'PIN Removed',
+                      message: 'Owner PIN protection has been disabled',
+                      icon: Icons.info_outline_rounded,
+                    );
+                  }
+                }
+              },
+              child: const Text('Remove PIN'),
+            ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final pin = pinCtrl.text.trim();
+              final confirm = confirmCtrl.text.trim();
+              if (pin.length != 4) {
+                TopToast.show(context, title: 'Invalid PIN', message: 'PIN must be exactly 4 digits', icon: Icons.error_outline_rounded, backgroundColor: Colors.red);
+                return;
+              }
+              if (pin != confirm) {
+                TopToast.show(context, title: 'PIN Mismatch', message: 'The confirmation PIN does not match', icon: Icons.error_outline_rounded, backgroundColor: Colors.red);
+                return;
+              }
+
+              if (hasPin) {
+                final authorized = await SecurityService.requireOwnerPin(
+                  context,
+                  title: 'Change Owner PIN',
+                  message: 'Enter current PIN before changing.',
+                );
+                if (!authorized) return;
+              }
+
+              await provider.setOwnerPin(pin);
+              if (context.mounted) {
+                Navigator.pop(ctx);
+                TopToast.show(
+                  context,
+                  title: 'Owner PIN Saved',
+                  message: 'Settings and rate modifications are now secured',
+                  icon: Icons.check_circle_rounded,
+                  backgroundColor: const Color(0xFF1E8E3E),
+                );
+              }
+            },
+            child: const Text('Save PIN'),
           ),
         ],
       ),

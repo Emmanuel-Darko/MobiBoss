@@ -1,22 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'providers/auth_provider.dart';
 import 'providers/mobiboss_provider.dart';
 import 'screens/transact_screen.dart';
 import 'screens/commissions_screen.dart';
 import 'screens/reconciliation_screen.dart';
+import 'screens/paywall_screen.dart';
 import 'screens/tills_screen.dart';
 import 'screens/ledger_screen.dart';
 import 'screens/customer_test_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'services/security_service.dart';
 import 'widgets/top_toast.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // TODO: Replace with your Supabase project credentials
+  await Supabase.initialize(
+    url: 'https://pyomprjluyjkwnllpprn.supabase.co',
+    // ignore: deprecated_member_use
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB5b21wcmpsdXlqa3dubGxwcHJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzOTc2MDgsImV4cCI6MjEwNzk3MzYwOH0._5SW2DaGWqMDUzNDyU7GdsNMgflgAsxaWeJe_kmLA48',
+  );
+
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => MobiBossProvider()..init()),
       ],
       child: const MobiBossApp(),
@@ -113,7 +126,9 @@ class MobiBossApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const MainNavigationShell(),
+      home: provider.hasCompletedOnboarding
+          ? const MainNavigationShell()
+          : const OnboardingScreen(),
     );
   }
 }
@@ -129,12 +144,16 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
   int _currentIndex = 0;
   bool _isAuthenticated = false;
 
-  final List<Widget> _screens = const [
-    TransactScreen(),
-    ReconciliationScreen(),
-    CommissionsScreen(),
-    TillsAndLedgerScreen(),
-  ];
+  /// Reconciliation tab (index 1) shows PaywallScreen when subscription is
+  /// expired — all other tabs are always accessible.
+  List<Widget> _buildScreens(bool hasReconciliationAccess) {
+    return [
+      const TransactScreen(),
+      hasReconciliationAccess ? const ReconciliationScreen() : const PaywallScreen(),
+      const CommissionsScreen(),
+      const TillsAndLedgerScreen(),
+    ];
+  }
 
   @override
   void initState() {
@@ -177,6 +196,8 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MoMoProvider>();
+    final auth = context.watch<AuthProvider>();
+    final screens = _buildScreens(auth.hasReconciliationAccess);
 
     if (provider.isAppLockEnabled && !_isAuthenticated) {
       return Scaffold(
@@ -302,7 +323,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> with WidgetsB
           ),
         ],
       ),
-      body: _screens[_currentIndex],
+      body: screens[_currentIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) => setState(() => _currentIndex = index),
@@ -420,16 +441,16 @@ class TillsAndLedgerScreen extends StatelessWidget {
                   : const Color(0xFF5F6368),
               indicatorColor: Theme.of(context).colorScheme.primary,
               tabs: const [
-                Tab(icon: Icon(Icons.sim_card_rounded, size: 18), text: 'SIM Till Floats'),
                 Tab(icon: Icon(Icons.receipt_long_rounded, size: 18), text: 'Transaction Ledger'),
+                Tab(icon: Icon(Icons.sim_card_rounded, size: 18), text: 'SIM Till Floats'),
               ],
             ),
           ),
           const Expanded(
             child: TabBarView(
               children: [
-                TillsScreen(),
                 LedgerScreen(),
+                TillsScreen(),
               ],
             ),
           ),

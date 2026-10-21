@@ -9,6 +9,7 @@ import '../services/sms_parser_service.dart';
 import '../services/storage_service.dart';
 import '../services/ussd_service.dart';
 import '../services/receipt_service.dart';
+import '../services/whatsapp_service.dart';
 
 class MoMoProvider extends ChangeNotifier {
   final _uuid = const Uuid();
@@ -29,6 +30,8 @@ class MoMoProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
 
   CommissionSettings _commissionSettings = CommissionSettings();
+  ShopProfile _shopProfile = ShopProfile();
+  String? _ownerPin;
 
   List<Till> _tills = [];
   List<TransactionRecord> _transactions = [];
@@ -45,13 +48,19 @@ class MoMoProvider extends ChangeNotifier {
   BluetoothPrinterInfo? _selectedPrinter;
   bool _autoPrintReceipts = false;
 
-  // Smart sender discovery
+  // Smart sender discovery & Dual-layer SMS storage
+  final List<SmsRecord> _allScannedRecords = [];
+  final Map<String, SenderInfo> _allDiscoveredSenders = {};
   final Map<String, SenderInfo> _discoveredSenders = {};
   final Set<String> _selectedSenders = {};
   bool _isScanningInbox = false;
-  String _reconciliationPeriod = 'today'; // today, shift, 24h, all
+  String _reconciliationPeriod = 'shift'; // 'shift', 'today', 'all'
+  CashDenomination _cashDenomination = CashDenomination();
+
+  bool _hasCompletedOnboarding = false;
 
   // Getters
+  bool get hasCompletedOnboarding => _hasCompletedOnboarding;
   double get currentCashInDrawer => _currentCashInDrawer;
   double get initialDrawerOpeningBalance => _initialDrawerOpeningBalance;
   List<Till> get tills => List.unmodifiable(_tills);
@@ -60,10 +69,14 @@ class MoMoProvider extends ChangeNotifier {
   List<ShiftRecord> get shiftHistory => List.unmodifiable(_shiftHistory);
   List<CustomerContact> get customerContacts => List.unmodifiable(_customerContacts);
   CommissionSettings get commissionSettings => _commissionSettings;
+  ShopProfile get shopProfile => _shopProfile;
+  String? get ownerPin => _ownerPin;
+  bool get hasOwnerPin => _ownerPin != null && _ownerPin!.isNotEmpty;
   Map<String, SenderInfo> get discoveredSenders => Map.unmodifiable(_discoveredSenders);
   Set<String> get selectedSenders => Set.unmodifiable(_selectedSenders);
   bool get isScanningInbox => _isScanningInbox;
   ReconciliationResult? get lastReconciliation => _lastReconciliation;
+  CashDenomination get cashDenomination => _cashDenomination;
   bool get isAccessibilityEnabled => _isAccessibilityEnabled;
   bool get isBalancePrivacyEnabled => _isBalancePrivacyEnabled;
   bool get isAppLockEnabled => _isAppLockEnabled;
@@ -71,6 +84,47 @@ class MoMoProvider extends ChangeNotifier {
   String get reconciliationPeriod => _reconciliationPeriod;
   double get dailyCommissionTarget => _dailyCommissionTarget;
   double get monthlyCommissionTarget => _monthlyCommissionTarget;
+
+  String get shiftTimeRangeDisplay {
+    final start = currentShiftStartTime;
+    final formatter = DateFormat('h:mm a');
+    return '${formatter.format(start)} → Now';
+  }
+
+  String get reconciliationPeriodLabel {
+    switch (_reconciliationPeriod) {
+      case 'shift':
+        return 'This Shift ($shiftTimeRangeDisplay)';
+      case 'today':
+        return 'Full Day (since midnight)';
+      case 'all':
+        return 'All Messages (Last 7 days)';
+      default:
+        return 'This Shift';
+    }
+  }
+
+  // Step Tracking Getters for Reconciliation Guided Workflow
+  bool get isScanComplete => _discoveredSenders.isNotEmpty || _smsRecords.isNotEmpty;
+  bool get isProvidersSelected => _selectedSenders.isNotEmpty;
+  bool get isCashCounted => _lastReconciliation != null;
+  int get completedStepsCount {
+    int count = 0;
+    if (isScanComplete) count++;
+    if (isCashCounted) count++;
+    if (_lastReconciliation != null && _lastReconciliation!.status == 'BALANCED') count++;
+    return count;
+  }
+  int get currentStepperIndex {
+    if (!isScanComplete) return 0;
+    if (!isCashCounted) return 1;
+    return 2;
+  }
+
+  void updateCashDenomination(CashDenomination denomination) {
+    _cashDenomination = denomination;
+    reconcileShift(physicalCash: denomination.total, denomination: denomination);
+  }
 
   List<PettyCashExpense> get pettyCashExpenses => List.unmodifiable(_pettyCashExpenses);
   List<Teller> get tellers => List.unmodifiable(_tellers);
@@ -87,6 +141,47 @@ class MoMoProvider extends ChangeNotifier {
     return _pettyCashExpenses
         .where((e) => e.timestamp.year == now.year && e.timestamp.month == now.month && e.timestamp.day == now.day)
         .toList();
+  }
+
+  DateTime get currentShiftStartTime {
+    DateTime? lastShiftEnd = _shiftHistory.isNotEmpty ? _shiftHistory.first.endTime : null;
+    DateTime? lastHandoverTime = _shiftHandovers.isNotEmpty ? _shiftHandovers.first.handoverTime : null;
+
+    if (lastShiftEnd == null && lastHandoverTime == null) {
+      final now = DateTime.now();
+      return DateTime(now.year, now.month, now.day);
+    }
+    if (lastShiftEnd != null && lastHandoverTime != null) {
+      return lastShiftEnd.isAfter(lastHandoverTime) ? lastShiftEnd : lastHandoverTime;
+    }
+    return lastShiftEnd ?? lastHandoverTime!;
+  }
+
+  List<TransactionRecord> get currentShiftTransactions {
+    final start = currentShiftStartTime;
+    return _transactions.where((tx) => tx.timestamp.isAfter(start)).toList();
+  }
+
+  double get currentShiftInflow => currentShiftTransactions.where((t) =>
+      t.type == TransactionType.cashIn ||
+      t.type == TransactionType.airtime ||
+      t.type == TransactionType.dataBundle ||
+      t.type == TransactionType.ecgElectricity ||
+      t.type == TransactionType.ghanaWater ||
+      t.type == TransactionType.payTv).fold(0.0, (sum, t) => sum + t.amount);
+
+  double get currentShiftOutflow => currentShiftTransactions.where((t) =>
+      t.type == TransactionType.cashOut ||
+      t.type == TransactionType.bankTransfer).fold(0.0, (sum, t) => sum + t.amount);
+
+  double get currentShiftVolume => currentShiftTransactions.fold(0.0, (sum, t) => sum + t.amount);
+  double get currentShiftCommission => currentShiftTransactions.fold(0.0, (sum, t) => sum + t.commission);
+
+  double get currentShiftPettyCashTotal {
+    final start = currentShiftStartTime;
+    return _pettyCashExpenses
+        .where((e) => e.timestamp.isAfter(start))
+        .fold(0.0, (sum, e) => sum + e.amount);
   }
 
   double get todayPettyCashTotal {
@@ -120,7 +215,7 @@ class MoMoProvider extends ChangeNotifier {
   double get todayVolume => todayTransactions.fold(0.0, (sum, t) => sum + t.amount);
   double get todayCommission => todayTransactions.fold(0.0, (sum, t) => sum + t.commission);
 
-  double get expectedDrawerCash => _initialDrawerOpeningBalance + todayInflow - todayOutflow - todayPettyCashTotal;
+  double get expectedDrawerCash => _initialDrawerOpeningBalance + currentShiftInflow - currentShiftOutflow - currentShiftPettyCashTotal;
   double get dailyGoalProgress => _dailyCommissionTarget > 0 ? (todayCommission / _dailyCommissionTarget).clamp(0.0, 1.0) : 0.0;
   double get projectedMonthlyCommission => todayCommission * 30;
 
@@ -179,6 +274,101 @@ class MoMoProvider extends ChangeNotifier {
     return list;
   }
 
+  // ─── Shift History Intelligence Getters ───
+  ShiftRecord? get lastClosedShift => _shiftHistory.isNotEmpty ? _shiftHistory.first : null;
+
+  double get averageShiftVariance {
+    if (_shiftHistory.isEmpty) return 0.0;
+    final totalAbsVar = _shiftHistory.fold(0.0, (sum, s) => sum + s.cashVariance.abs());
+    return totalAbsVar / _shiftHistory.length;
+  }
+
+  int get balancedShiftStreak {
+    int streak = 0;
+    for (final shift in _shiftHistory) {
+      if (shift.status.toUpperCase() == 'BALANCED') {
+        streak++;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }
+
+  double get bestSingleShiftCommission {
+    if (_shiftHistory.isEmpty) return 0.0;
+    return _shiftHistory.map((s) => s.totalCommissions).reduce((a, b) => a > b ? a : b);
+  }
+
+  double get totalShiftCommissionsAllTime {
+    return _shiftHistory.fold(0.0, (sum, s) => sum + s.totalCommissions);
+  }
+
+  double get totalShiftVolumeAllTime {
+    return _shiftHistory.fold(0.0, (sum, s) => sum + s.totalCashIn + s.totalCashOut);
+  }
+
+  int get totalShiftTxCountAllTime {
+    return _shiftHistory.fold(0, (sum, s) => sum + s.transactionCount);
+  }
+
+  Map<String, int> get shiftStatusCounts {
+    final counts = {'BALANCED': 0, 'SHORTAGE': 0, 'OVERAGE': 0};
+    for (final shift in _shiftHistory) {
+      final st = shift.status.toUpperCase();
+      if (counts.containsKey(st)) {
+        counts[st] = counts[st]! + 1;
+      } else {
+        counts[st] = 1;
+      }
+    }
+    return counts;
+  }
+
+  double get balancedShiftRate {
+    if (_shiftHistory.isEmpty) return 100.0;
+    final balancedCount = _shiftHistory.where((s) => s.status.toUpperCase() == 'BALANCED').length;
+    return (balancedCount / _shiftHistory.length) * 100.0;
+  }
+
+  List<ShiftRecord> get thisWeekShifts {
+    final now = DateTime.now();
+    final weekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    return _shiftHistory.where((s) => s.endTime.isAfter(weekStart)).toList();
+  }
+
+  double get thisWeekShiftCommissions {
+    return thisWeekShifts.fold(0.0, (sum, s) => sum + s.totalCommissions);
+  }
+
+  List<ShiftRecord> get lastWeekShifts {
+    final now = DateTime.now();
+    final weekStart = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    final prevWeekStart = weekStart.subtract(const Duration(days: 7));
+    return _shiftHistory.where((s) => s.endTime.isAfter(prevWeekStart) && s.endTime.isBefore(weekStart)).toList();
+  }
+
+  double get lastWeekShiftCommissions {
+    return lastWeekShifts.fold(0.0, (sum, s) => sum + s.totalCommissions);
+  }
+
+  Future<void> reloadShiftHistory() async {
+    _shiftHistory = await DbService.getClosedShifts();
+    notifyListeners();
+  }
+
+  String exportShiftHistoryToCsv() {
+    final buffer = StringBuffer();
+    buffer.writeln('Shift#,Start Time,End Time,Opening Cash,Closing Cash,Expected Cash,Variance,Cash In,Cash Out,Commissions,Tx Count,Status,AI Diagnosis');
+    final df = DateFormat('yyyy-MM-dd HH:mm:ss');
+    for (final s in _shiftHistory) {
+      buffer.writeln(
+        '${s.shiftNumber},"${df.format(s.startTime)}","${df.format(s.endTime)}",${s.openingCash.toStringAsFixed(2)},${s.closingCash.toStringAsFixed(2)},${s.expectedCash.toStringAsFixed(2)},${s.cashVariance.toStringAsFixed(2)},${s.totalCashIn.toStringAsFixed(2)},${s.totalCashOut.toStringAsFixed(2)},${s.totalCommissions.toStringAsFixed(2)},${s.transactionCount},"${s.status}","${s.aiDiagnosis.replaceAll('"', '""')}"',
+      );
+    }
+    return buffer.toString();
+  }
+
   /// Formats amount with thousand separators taking privacy mask into account
   String formatAmount(double amount, {String prefix = 'GHS '}) {
     if (_isBalancePrivacyEnabled) {
@@ -195,20 +385,20 @@ class MoMoProvider extends ChangeNotifier {
   /// Returns only SMS records from selected senders within the chosen time period
   List<SmsRecord> get filteredSmsRecords {
     final now = DateTime.now();
+    final start = currentShiftStartTime;
+    final selectedUpper = _selectedSenders.map((s) => s.toUpperCase().trim()).toSet();
     return _smsRecords.where((sms) {
-      if (_selectedSenders.isNotEmpty &&
-          !_selectedSenders.contains(sms.sender.toUpperCase())) {
+      if (selectedUpper.isNotEmpty &&
+          !selectedUpper.contains(sms.sender.toUpperCase().trim())) {
         return false;
       }
       switch (_reconciliationPeriod) {
+        case 'shift':
+          return sms.timestamp.isAfter(start);
         case 'today':
           return sms.timestamp.year == now.year &&
               sms.timestamp.month == now.month &&
               sms.timestamp.day == now.day;
-        case 'shift':
-          return now.difference(sms.timestamp).inHours <= 8;
-        case '24h':
-          return now.difference(sms.timestamp).inHours <= 24;
         case 'all':
         default:
           return true;
@@ -346,6 +536,9 @@ class MoMoProvider extends ChangeNotifier {
     _dailyCommissionTarget = await StorageService.loadDailyTarget();
     _monthlyCommissionTarget = await StorageService.loadMonthlyTarget();
     _commissionSettings = await StorageService.loadCommissionSettings();
+    _shopProfile = await StorageService.loadShopProfile();
+    _ownerPin = await StorageService.loadOwnerPin();
+    _hasCompletedOnboarding = await StorageService.loadHasCompletedOnboarding();
     _isBalancePrivacyEnabled = await StorageService.loadBalancePrivacy();
     _isAppLockEnabled = await StorageService.loadAppLock();
 
@@ -365,13 +558,51 @@ class MoMoProvider extends ChangeNotifier {
     );
 
     checkAccessibilityState();
-    recalculateReconciliation();
+    // Only recalculate on startup if there's a saved reconciliation to restore.
+    // Calling it fresh (no cash counted yet) creates a phantom shortage/variance.
+    if (_lastReconciliation != null) {
+      recalculateReconciliation();
+    }
     notifyListeners();
   }
 
   Future<void> checkAccessibilityState() async {
     _isAccessibilityEnabled = await UssdService.isAccessibilityEnabled();
     notifyListeners();
+  }
+
+  // ─── First-Time Onboarding Completion ───
+  Future<void> completeOnboarding({
+    required ShopProfile profile,
+    required double openingCash,
+  }) async {
+    _shopProfile = profile;
+    await StorageService.saveShopProfile(profile);
+    _currentCashInDrawer = openingCash;
+    _initialDrawerOpeningBalance = openingCash;
+    await StorageService.saveDrawerCash(openingCash);
+    _hasCompletedOnboarding = true;
+    await StorageService.saveHasCompletedOnboarding(true);
+    notifyListeners();
+  }
+
+  // ─── Shop & Owner Profile Management ───
+  Future<void> updateShopProfile(ShopProfile profile) async {
+    _shopProfile = profile;
+    await StorageService.saveShopProfile(profile);
+    notifyListeners();
+  }
+
+  // ─── Owner Security PIN ───
+  Future<void> setOwnerPin(String? pin) async {
+    _ownerPin = pin;
+    await StorageService.saveOwnerPin(pin);
+    notifyListeners();
+  }
+
+  bool verifyOwnerPin(String pin) {
+    if (_ownerPin == null || _ownerPin!.isEmpty) return true;
+    return _ownerPin == pin;
   }
 
   // ─── Theme Mode ───
@@ -482,9 +713,26 @@ class MoMoProvider extends ChangeNotifier {
     _shiftHandovers.insert(0, handover);
     await DbService.insertShiftHandover(handover);
 
+    // Update drawer opening balance and current cash to counted handover cash
+    _initialDrawerOpeningBalance = handover.countedDrawerCash;
+    _currentCashInDrawer = handover.countedDrawerCash;
+    await StorageService.saveDrawerCash(handover.countedDrawerCash);
+
+    // Clear previous attendant's scan session and reconciliation
+    _allScannedRecords.clear();
+    _allDiscoveredSenders.clear();
+    _smsRecords.clear();
+    _discoveredSenders.clear();
+    _selectedSenders.clear();
+    _cashDenomination = CashDenomination();
+    _lastReconciliation = null;
+    _reconciliationPeriod = 'shift';
+    await StorageService.saveLastReconciliation(null);
+
     if (nextTeller != null) {
       await switchActiveTeller(nextTeller.id);
     }
+
     notifyListeners();
   }
 
@@ -556,20 +804,19 @@ class MoMoProvider extends ChangeNotifier {
   Future<ShiftRecord> closeCurrentShift({
     required double countedCash,
     required BuildContext context,
+    CashDenomination? denomination,
   }) async {
-    reconcileShift(physicalCash: countedCash);
+    reconcileShift(physicalCash: countedCash, denomination: denomination);
     final rec = _lastReconciliation!;
 
     final now = DateTime.now();
-    final periodTx = _transactions.where((tx) {
-      if (_shiftHistory.isEmpty) return true;
-      return tx.timestamp.isAfter(_shiftHistory.first.endTime);
-    }).toList();
+    final start = currentShiftStartTime;
+    final periodTx = _transactions.where((tx) => tx.timestamp.isAfter(start)).toList();
 
     final shift = ShiftRecord(
       id: _uuid.v4(),
       shiftNumber: currentShiftNumber,
-      startTime: _shiftHistory.isNotEmpty ? _shiftHistory.first.endTime : now.subtract(const Duration(hours: 8)),
+      startTime: start,
       endTime: now,
       openingCash: _initialDrawerOpeningBalance,
       closingCash: countedCash,
@@ -578,9 +825,11 @@ class MoMoProvider extends ChangeNotifier {
       totalCashIn: rec.totalCashIn,
       totalCashOut: rec.totalCashOut,
       totalCommissions: rec.totalCommissions,
-      transactionCount: periodTx.isNotEmpty ? periodTx.length : _transactions.length,
+      transactionCount: periodTx.isNotEmpty ? periodTx.length : currentShiftTransactions.length,
       status: rec.status,
       aiDiagnosis: rec.aiDiagnosis,
+      denomination: denomination ?? _cashDenomination,
+      networkBreakdown: rec.networkBreakdown,
     );
 
     _shiftHistory.insert(0, shift);
@@ -591,7 +840,17 @@ class MoMoProvider extends ChangeNotifier {
     _currentCashInDrawer = countedCash;
     await StorageService.saveDrawerCash(countedCash);
 
-    recalculateReconciliation();
+    // Reset reconciliation and scan session for the fresh new shift
+    _allScannedRecords.clear();
+    _allDiscoveredSenders.clear();
+    _smsRecords.clear();
+    _discoveredSenders.clear();
+    _selectedSenders.clear();
+    _cashDenomination = CashDenomination();
+    _lastReconciliation = null;
+    _reconciliationPeriod = 'shift';
+    await StorageService.saveLastReconciliation(null);
+
     notifyListeners();
     return shift;
   }
@@ -613,12 +872,88 @@ class MoMoProvider extends ChangeNotifier {
 
   void setReconciliationPeriod(String period) {
     _reconciliationPeriod = period;
+    _applyPeriodFilter();
     recalculateReconciliation();
     notifyListeners();
   }
 
+  String _categorizeSender(String senderAddr) {
+    final lowerAddr = senderAddr.toLowerCase();
+    if (lowerAddr.contains('mtn') || lowerAddr.contains('mobilemoney') || lowerAddr == '171') {
+      return 'MoMo';
+    } else if (lowerAddr.contains('telecel') || lowerAddr.contains('vodafone') || lowerAddr == '110') {
+      return 'MoMo';
+    } else if (lowerAddr.contains('atmoney') || lowerAddr.contains('airteltigo') || lowerAddr.contains('at money')) {
+      return 'MoMo';
+    } else if (lowerAddr.contains('gmoney') || lowerAddr.contains('gcb')) {
+      return 'MoMo';
+    } else if (lowerAddr.contains('bank') || lowerAddr.contains('fidelity') ||
+        lowerAddr.contains('ecobank') || lowerAddr.contains('stanbic') ||
+        lowerAddr.contains('absa') || lowerAddr.contains('zenith') ||
+        lowerAddr.contains('calbank') || lowerAddr.contains('gtbank') ||
+        lowerAddr.contains('access')) {
+      return 'Bank';
+    } else if (lowerAddr.contains('zeepay') || lowerAddr.contains('hubtel') || lowerAddr.contains('expresspay')) {
+      return 'FinTech';
+    } else {
+      return 'Other';
+    }
+  }
+
+  void _applyPeriodFilter() {
+    final now = DateTime.now();
+    final start = currentShiftStartTime;
+    final DateTime cutoff;
+    switch (_reconciliationPeriod) {
+      case 'shift':
+        cutoff = start;
+        break;
+      case 'today':
+        cutoff = DateTime(now.year, now.month, now.day);
+        break;
+      case 'all':
+      default:
+        cutoff = now.subtract(const Duration(days: 7));
+        break;
+    }
+
+    _smsRecords.clear();
+    _smsRecords.addAll(_allScannedRecords.where((r) => r.timestamp.isAfter(cutoff)));
+
+    // Rebuild _discoveredSenders with counts scoped to this period
+    _discoveredSenders.clear();
+    for (final record in _smsRecords) {
+      final key = record.sender.toUpperCase().trim();
+      final existing = _discoveredSenders[key];
+      final category = _categorizeSender(record.sender);
+      if (existing == null) {
+        _discoveredSenders[key] = SenderInfo(
+          address: record.sender,
+          totalMessages: 1,
+          parsedTransactions: 1,
+          category: category,
+        );
+      } else {
+        _discoveredSenders[key] = SenderInfo(
+          address: record.sender,
+          totalMessages: existing.totalMessages + 1,
+          parsedTransactions: existing.parsedTransactions + 1,
+          category: category,
+        );
+      }
+    }
+
+    // Smart auto-selection: select only MoMo providers by default
+    _selectedSenders.clear();
+    for (final entry in _discoveredSenders.entries) {
+      if (entry.value.category == 'MoMo') {
+        _selectedSenders.add(entry.key);
+      }
+    }
+  }
+
   void toggleSenderSelection(String sender) {
-    final key = sender.toUpperCase();
+    final key = sender.toUpperCase().trim();
     if (_selectedSenders.contains(key)) {
       _selectedSenders.remove(key);
     } else {
@@ -639,6 +974,76 @@ class MoMoProvider extends ChangeNotifier {
     _selectedSenders.clear();
     recalculateReconciliation();
     notifyListeners();
+  }
+
+  /// Checks if all senders for a given network are selected
+  bool isNetworkSelected(NetworkProvider network) {
+    final netSenders = _discoveredSenders.values.where((s) {
+      final lower = s.address.toLowerCase();
+      switch (network) {
+        case NetworkProvider.mtn:
+          return lower.contains('mtn') || lower.contains('mobilemoney') || lower.contains('171');
+        case NetworkProvider.telecel:
+          return lower.contains('telecel') || lower.contains('vodafone') || lower.contains('110');
+        case NetworkProvider.at:
+          return lower.contains('atmoney') || lower.contains('airteltigo') || lower.contains('at money');
+        case NetworkProvider.gmoney:
+          return lower.contains('gmoney') || lower.contains('gcb') || lower.contains('g-money');
+      }
+    }).toList();
+
+    if (netSenders.isEmpty) return false;
+    return netSenders.every((s) => _selectedSenders.contains(s.address.toUpperCase().trim()));
+  }
+
+  /// Returns total parsed transactions for a network in the active session
+  int networkParsedTxCount(NetworkProvider network) {
+    return filteredSmsRecords.where((r) => r.network == network).length;
+  }
+
+  /// Toggles all senders matching a specific telecom network
+  void toggleNetworkSelection(NetworkProvider network) {
+    final netSenders = _discoveredSenders.values.where((s) {
+      final lower = s.address.toLowerCase();
+      switch (network) {
+        case NetworkProvider.mtn:
+          return lower.contains('mtn') || lower.contains('mobilemoney') || lower.contains('171');
+        case NetworkProvider.telecel:
+          return lower.contains('telecel') || lower.contains('vodafone') || lower.contains('110');
+        case NetworkProvider.at:
+          return lower.contains('atmoney') || lower.contains('airteltigo') || lower.contains('at money');
+        case NetworkProvider.gmoney:
+          return lower.contains('gmoney') || lower.contains('gcb') || lower.contains('g-money');
+      }
+    }).toList();
+
+    final currentlySelected = isNetworkSelected(network);
+    for (final s in netSenders) {
+      final key = s.address.toUpperCase().trim();
+      if (currentlySelected) {
+        _selectedSenders.remove(key);
+      } else {
+        _selectedSenders.add(key);
+      }
+    }
+    recalculateReconciliation();
+    notifyListeners();
+  }
+
+  /// Returns formatted elapsed duration since current shift started (e.g. "4h 12m ago")
+  String get shiftElapsedTimeDisplay {
+    final now = DateTime.now();
+    final start = currentShiftStartTime;
+    final diff = now.difference(start);
+    if (diff.isNegative || diff.inMinutes < 1) {
+      return 'Just started';
+    }
+    final hours = diff.inHours;
+    final minutes = diff.inMinutes % 60;
+    if (hours == 0) {
+      return '${minutes}m ago';
+    }
+    return '${hours}h ${minutes}m ago';
   }
 
   void updateDailyTarget(double target) {
@@ -703,6 +1108,8 @@ class MoMoProvider extends ChangeNotifier {
         count: 500,
       );
 
+      _allScannedRecords.clear();
+      _allDiscoveredSenders.clear();
       _discoveredSenders.clear();
       _smsRecords.clear();
       _selectedSenders.clear();
@@ -718,13 +1125,11 @@ class MoMoProvider extends ChangeNotifier {
         senderMessages.putIfAbsent(key, () => []).add(msg);
       }
 
-      int totalParsed = 0;
-
       for (final entry in senderMessages.entries) {
         final senderAddr = entry.key;
         final msgs = entry.value;
         int parsedCount = 0;
-        String category = 'unknown';
+        final category = _categorizeSender(senderAddr);
 
         for (final msg in msgs) {
           final body = (msg.body ?? '').trim();
@@ -734,62 +1139,45 @@ class MoMoProvider extends ChangeNotifier {
           if (isKnownSender || hasPaymentKeywords) {
             final parsed = SmsParserService.parse(body, sender: senderAddr, timestamp: msg.date);
             if (parsed != null) {
-              final isDup = _smsRecords.any((r) => r.reference == parsed.reference);
+              final isDup = SmsParserService.isDuplicate(parsed, _allScannedRecords);
               if (!isDup) {
-                _smsRecords.add(parsed);
+                _allScannedRecords.add(parsed);
+                _processReversalMatch(parsed);
                 _autoRecordConfirmedTransaction(parsed);
                 _autoUpdateContact(parsed.customerPhone, parsed.network);
                 parsedCount++;
-                totalParsed++;
               }
             }
           }
         }
 
         if (parsedCount > 0) {
-          final lowerAddr = senderAddr.toLowerCase();
-          if (lowerAddr.contains('mtn') || lowerAddr.contains('mobilemoney') || lowerAddr == '171') {
-            category = 'MoMo';
-          } else if (lowerAddr.contains('telecel') || lowerAddr.contains('vodafone') || lowerAddr == '110') {
-            category = 'MoMo';
-          } else if (lowerAddr.contains('atmoney') || lowerAddr.contains('airteltigo')) {
-            category = 'MoMo';
-          } else if (lowerAddr.contains('gmoney') || lowerAddr.contains('gcb')) {
-            category = 'FinTech';
-          } else if (lowerAddr.contains('bank') || lowerAddr.contains('fidelity') ||
-              lowerAddr.contains('ecobank') || lowerAddr.contains('stanbic') ||
-              lowerAddr.contains('absa') || lowerAddr.contains('zenith')) {
-            category = 'Bank';
-          } else {
-            category = 'Other';
-          }
-
-          _discoveredSenders[senderAddr] = SenderInfo(
+          _allDiscoveredSenders[senderAddr] = SenderInfo(
             address: senderAddr,
             totalMessages: msgs.length,
             parsedTransactions: parsedCount,
             category: category,
           );
-
-          if (category == 'MoMo') {
-            _selectedSenders.add(senderAddr);
-          }
         }
       }
 
-      if (_selectedSenders.isEmpty && _discoveredSenders.isNotEmpty) {
-        _selectedSenders.addAll(_discoveredSenders.keys);
-      }
+      // Filter parsed records to active period (defaults to 'shift')
+      _applyPeriodFilter();
 
       _isScanningInbox = false;
       recalculateReconciliation();
       notifyListeners();
 
+      final momoCount = _discoveredSenders.values.where((s) => s.category == 'MoMo').length;
+      final otherCount = _discoveredSenders.length - momoCount;
+      String snackMsg = 'Found $momoCount MoMo provider(s) with ${_smsRecords.length} transaction(s).';
+      if (otherCount > 0) {
+        snackMsg += ' ($otherCount other sender(s) available to review)';
+      }
+
       messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            'Found ${_discoveredSenders.length} payment providers with $totalParsed confirmed transactions.',
-          ),
+          content: Text(snackMsg),
           backgroundColor: const Color(0xFF1E8E3E),
         ),
       );
@@ -802,8 +1190,51 @@ class MoMoProvider extends ChangeNotifier {
     }
   }
 
+  /// Processes reversal matches by voiding the matching original SMS and transaction records
+  void _processReversalMatch(SmsRecord reversal) {
+    if (!reversal.isReversed && reversal.type != TransactionType.reversal) return;
+
+    final origSms = SmsParserService.findOriginalForReversal(reversal, _allScannedRecords);
+    if (origSms != null) {
+      final idxAll = _allScannedRecords.indexWhere((r) => r.id == origSms.id);
+      if (idxAll != -1) {
+        _allScannedRecords[idxAll] = _allScannedRecords[idxAll].copyWith(
+          isVoided: true,
+          voidedByReversalId: reversal.id,
+        );
+      }
+      final idxShift = _smsRecords.indexWhere((r) => r.id == origSms.id);
+      if (idxShift != -1) {
+        _smsRecords[idxShift] = _smsRecords[idxShift].copyWith(
+          isVoided: true,
+          voidedByReversalId: reversal.id,
+        );
+      }
+    }
+
+    // Also mark matching transaction record as reversed/voided
+    final txIdx = _transactions.indexWhere((t) =>
+        !t.isVoided &&
+        t.network == reversal.network &&
+        (t.amount - reversal.amount).abs() < 0.01 &&
+        (reversal.customerPhone.isEmpty || t.customerPhone == reversal.customerPhone));
+    if (txIdx != -1) {
+      _transactions[txIdx] = _transactions[txIdx].copyWith(
+        isVoided: true,
+        voidedByReversalId: reversal.id,
+        status: TransactionStatus.reversed,
+      );
+    }
+  }
+
   /// Automatically records confirmed transactions into the ledger and updates float/drawer
   Future<void> _autoRecordConfirmedTransaction(SmsRecord sms) async {
+    // If this is a reversal, process the reversal pairing and avoid double-counting
+    if (sms.isReversed || sms.type == TransactionType.reversal) {
+      _processReversalMatch(sms);
+      return;
+    }
+
     final exists = _transactions.any((t) => t.reference == sms.reference);
     if (exists) return;
 
@@ -862,6 +1293,8 @@ class MoMoProvider extends ChangeNotifier {
           case TransactionType.bankTransfer:
             newFloat += amount;
             break;
+          case TransactionType.reversal:
+            break;
         }
         updatedTill = t.copyWith(currentFloat: newFloat);
         return updatedTill!;
@@ -890,6 +1323,7 @@ class MoMoProvider extends ChangeNotifier {
         break;
       case TransactionType.floatTransfer:
       case TransactionType.bankTransfer:
+      case TransactionType.reversal:
         break;
     }
     await StorageService.saveDrawerCash(_currentCashInDrawer);
@@ -981,8 +1415,11 @@ class MoMoProvider extends ChangeNotifier {
         count: 50,
       );
 
+      final start = currentShiftStartTime;
       int newlySynced = 0;
       for (final msg in messages) {
+        if (msg.date != null && !msg.date!.isAfter(start)) continue;
+
         final rawAddress = (msg.address ?? '').trim();
         final body = (msg.body ?? '').trim();
         if (rawAddress.isEmpty || body.isEmpty) continue;
@@ -993,6 +1430,11 @@ class MoMoProvider extends ChangeNotifier {
         if (isKnownSender || hasPaymentKeywords) {
           final parsed = SmsParserService.parse(body, sender: rawAddress, timestamp: msg.date);
           if (parsed != null) {
+            final existsInAll = _allScannedRecords.any((r) => r.reference == parsed.reference);
+            if (!existsInAll) {
+              _allScannedRecords.insert(0, parsed);
+            }
+
             // Check if matches a pending transaction in ledger
             final pendingIdx = _transactions.indexWhere(
               (t) =>
@@ -1022,13 +1464,20 @@ class MoMoProvider extends ChangeNotifier {
               await _applyBalanceImpact(pendingTx.tillId, parsed.type, parsed.amount, postBalance: parsed.postBalance);
               newlySynced++;
             } else {
-              final existsInSms = _smsRecords.any((r) => r.reference == parsed.reference);
+              final isDupInSms = SmsParserService.isDuplicate(parsed, _smsRecords);
+              final isDupInAll = SmsParserService.isDuplicate(parsed, _allScannedRecords);
               final existsInTx = _transactions.any((t) => t.reference == parsed.reference);
 
-              if (!existsInSms) {
+              if (!isDupInSms) {
                 _smsRecords.insert(0, parsed);
               }
-              if (!existsInTx) {
+              if (!isDupInAll) {
+                _allScannedRecords.insert(0, parsed);
+              }
+              if (parsed.isReversed || parsed.type == TransactionType.reversal) {
+                _processReversalMatch(parsed);
+                newlySynced++;
+              } else if (!existsInTx) {
                 await _autoRecordConfirmedTransaction(parsed);
                 newlySynced++;
               }
@@ -1159,16 +1608,139 @@ Status: ${tx.status == TransactionStatus.completed ? 'CONFIRMED ✓' : tx.status
 Thank you for transacting with us!''';
   }
 
+  /// Calculates volume, inflow, outflow, and commissions grouped by carrier network
+  Map<String, NetworkVolumeSummary> get networkVolumeSummaries {
+    final Map<String, NetworkVolumeSummary> map = {
+      NetworkProvider.mtn.name: NetworkVolumeSummary(network: NetworkProvider.mtn),
+      NetworkProvider.telecel.name: NetworkVolumeSummary(network: NetworkProvider.telecel),
+      NetworkProvider.at.name: NetworkVolumeSummary(network: NetworkProvider.at),
+      NetworkProvider.gmoney.name: NetworkVolumeSummary(network: NetworkProvider.gmoney),
+    };
+
+    final activeRecords = filteredSmsRecords;
+    if (activeRecords.isNotEmpty) {
+      for (final r in activeRecords) {
+        final current = map[r.network.name] ?? NetworkVolumeSummary(network: r.network);
+        final comm = _calculateCommission(r.network, r.type, r.amount);
+
+        double cashIn = current.cashInTotal;
+        double cashOut = current.cashOutTotal;
+        double airtime = current.airtimeTotal;
+        double data = current.dataTotal;
+
+        if (r.isReversed || r.type == TransactionType.reversal) {
+          // Reversals do not add positive sales volume
+        } else if (r.type == TransactionType.cashIn) {
+          cashIn += r.amount;
+        } else if (r.type == TransactionType.cashOut) {
+          cashOut += r.amount;
+        } else if (r.type == TransactionType.airtime) {
+          airtime += r.amount;
+        } else if (r.type == TransactionType.dataBundle) {
+          data += r.amount;
+        }
+
+        map[r.network.name] = NetworkVolumeSummary(
+          network: r.network,
+          cashInTotal: cashIn,
+          cashOutTotal: cashOut,
+          airtimeTotal: airtime,
+          dataTotal: data,
+          commissionsTotal: current.commissionsTotal + (r.isReversed ? 0.0 : comm),
+          txCount: current.txCount + 1,
+        );
+      }
+    } else {
+      for (final tx in currentShiftTransactions) {
+        final current = map[tx.network.name] ?? NetworkVolumeSummary(network: tx.network);
+        double cashIn = current.cashInTotal;
+        double cashOut = current.cashOutTotal;
+        double airtime = current.airtimeTotal;
+        double data = current.dataTotal;
+
+        if (tx.type == TransactionType.reversal) {
+          // Ignore
+        } else if (tx.type == TransactionType.cashIn) {
+          cashIn += tx.amount;
+        } else if (tx.type == TransactionType.cashOut) {
+          cashOut += tx.amount;
+        } else if (tx.type == TransactionType.airtime) {
+          airtime += tx.amount;
+        } else if (tx.type == TransactionType.dataBundle) {
+          data += tx.amount;
+        }
+
+        map[tx.network.name] = NetworkVolumeSummary(
+          network: tx.network,
+          cashInTotal: cashIn,
+          cashOutTotal: cashOut,
+          airtimeTotal: airtime,
+          dataTotal: data,
+          commissionsTotal: current.commissionsTotal + tx.commission,
+          txCount: current.txCount + 1,
+        );
+      }
+    }
+    return map;
+  }
+
+  /// Sends a WhatsApp-formatted audit report to the shop owner
+  Future<bool> sendShiftSummaryToWhatsApp({required BuildContext context, ShiftRecord? shift}) async {
+    String recipient = _shopProfile.ownerPhone.trim();
+    if (recipient.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Owner WhatsApp number is not set. Please configure it in Settings.'),
+            backgroundColor: Color(0xFFE37400),
+          ),
+        );
+      }
+      return false;
+    }
+
+    String message;
+    if (shift != null) {
+      message = WhatsAppService.formatShiftReport(
+        shift: shift,
+        shopProfile: _shopProfile,
+        tellerName: _activeTeller?.name,
+      );
+    } else if (_lastReconciliation != null) {
+      message = WhatsAppService.formatLiveReconciliationReport(
+        result: _lastReconciliation!,
+        shopProfile: _shopProfile,
+        shiftNumber: currentShiftNumber,
+        timeRangeDisplay: shiftTimeRangeDisplay,
+        tellerName: _activeTeller?.name,
+      );
+    } else {
+      return false;
+    }
+
+    return await WhatsAppService.sendWhatsAppReport(
+      message: message,
+      recipientPhone: recipient,
+    );
+  }
+
   /// Reconciles shift using active filtered SMS records and recorded transactions
-  void reconcileShift({required double physicalCash}) {
+  void reconcileShift({required double physicalCash, CashDenomination? denomination}) {
     double totalIn = 0;
     double totalOut = 0;
     double totalComm = 0;
+    int reversalsCount = 0;
 
     final activeRecords = filteredSmsRecords;
 
     if (activeRecords.isNotEmpty) {
       for (final r in activeRecords) {
+        if (r.isReversed || r.isVoided || r.type == TransactionType.reversal) {
+          reversalsCount++;
+          // When a transaction is reversed or voided by a reversal, its amount is not added as inflow/outflow
+          continue;
+        }
+
         final comm = _calculateCommission(r.network, r.type, r.amount);
         if (r.type == TransactionType.cashIn ||
             r.type == TransactionType.airtime ||
@@ -1185,16 +1757,15 @@ Thank you for transacting with us!''';
       }
     } else {
       final now = DateTime.now();
+      final start = currentShiftStartTime;
       final periodTx = _transactions.where((tx) {
         switch (_reconciliationPeriod) {
+          case 'shift':
+            return tx.timestamp.isAfter(start);
           case 'today':
             return tx.timestamp.year == now.year &&
                 tx.timestamp.month == now.month &&
                 tx.timestamp.day == now.day;
-          case 'shift':
-            return now.difference(tx.timestamp).inHours <= 8;
-          case '24h':
-            return now.difference(tx.timestamp).inHours <= 24;
           case 'all':
           default:
             return true;
@@ -1202,6 +1773,11 @@ Thank you for transacting with us!''';
       }).toList();
 
       for (var tx in periodTx) {
+        if (tx.isVoided || tx.status == TransactionStatus.reversed || tx.type == TransactionType.reversal) {
+          reversalsCount++;
+          continue;
+        }
+
         if (tx.type == TransactionType.cashIn ||
             tx.type == TransactionType.airtime ||
             tx.type == TransactionType.dataBundle ||
@@ -1220,19 +1796,17 @@ Thank you for transacting with us!''';
     // Calculate petty cash expenses for the selected reconciliation period
     double periodPettyCash = 0;
     final now = DateTime.now();
+    final start = currentShiftStartTime;
     for (final exp in _pettyCashExpenses) {
       bool include = false;
       switch (_reconciliationPeriod) {
+        case 'shift':
+          include = exp.timestamp.isAfter(start);
+          break;
         case 'today':
           include = exp.timestamp.year == now.year &&
               exp.timestamp.month == now.month &&
               exp.timestamp.day == now.day;
-          break;
-        case 'shift':
-          include = now.difference(exp.timestamp).inHours <= 8;
-          break;
-        case '24h':
-          include = now.difference(exp.timestamp).inHours <= 24;
           break;
         case 'all':
         default:
@@ -1252,16 +1826,27 @@ Thank you for transacting with us!''';
     if (periodPettyCash > 0) {
       diagnosis += ' Accounted for GHS ${formatNumber(periodPettyCash)} in petty cash shop expenses.';
     }
+    if (reversalsCount > 0) {
+      diagnosis += ' Auto-neutralized $reversalsCount reversed/voided transaction leg(s) from drawer balance.';
+    }
 
     if (variance < -0.01) {
       status = 'SHORTAGE';
       diagnosis = 'Shortage of GHS ${variance.abs().toStringAsFixed(2)} in cash drawer! '
           'Check for unrecorded cash payouts, uncollected customer change, or unlogged petty cash.';
+      if (reversalsCount > 0) {
+        diagnosis += ' ($reversalsCount reversal(s) were auto-neutralized).';
+      }
     } else if (variance > 0.01) {
       status = 'OVERAGE';
       diagnosis = 'Surplus of GHS ${variance.toStringAsFixed(2)} in cash drawer! '
           'Check for unrecorded cash-in deposits or received payments not yet logged.';
+      if (reversalsCount > 0) {
+        diagnosis += ' ($reversalsCount reversal(s) were auto-neutralized).';
+      }
     }
+
+    final breakdown = networkVolumeSummaries;
 
     _lastReconciliation = ReconciliationResult(
       physicalCashCount: physicalCash,
@@ -1273,6 +1858,8 @@ Thank you for transacting with us!''';
       totalCommissions: totalComm,
       status: status,
       aiDiagnosis: diagnosis,
+      denomination: denomination ?? _cashDenomination,
+      networkBreakdown: breakdown,
     );
 
     _currentCashInDrawer = physicalCash;
