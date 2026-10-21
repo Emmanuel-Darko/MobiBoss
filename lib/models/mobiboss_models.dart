@@ -276,7 +276,7 @@ class TransactionRecord {
         ussdString: json['ussdString'] as String,
         timestamp: DateTime.parse(json['timestamp'] as String),
         status: TransactionStatus.values.byName(json['status'] as String),
-        isVoided: json['isVoided'] as bool? ?? false,
+        isVoided: json['isVoided'] == true || json['isVoided'] == 1,
         voidedByReversalId: json['voidedByReversalId'] as String?,
       );
 }

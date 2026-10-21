@@ -266,7 +266,13 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun isAccessibilityServiceEnabled(context: Context, service: Class<*>): Boolean {
+        // Fast-path: Service is connected and active in memory
+        if (UssdAccessibilityService.isServiceEnabled) {
+            return true
+        }
+
         val expectedComponentName = "${context.packageName}/${service.name}"
+        val shortComponentName = "${context.packageName}/.${service.simpleName}"
         val enabledServices = Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
@@ -277,7 +283,9 @@ class MainActivity : FlutterFragmentActivity() {
 
         while (colonSplitter.hasNext()) {
             val componentName = colonSplitter.next()
-            if (componentName.equals(expectedComponentName, ignoreCase = true)) {
+            if (componentName.equals(expectedComponentName, ignoreCase = true) ||
+                componentName.equals(shortComponentName, ignoreCase = true) ||
+                componentName.contains(service.simpleName, ignoreCase = true)) {
                 return true
             }
         }

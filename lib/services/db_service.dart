@@ -8,7 +8,7 @@ import '../models/mobiboss_models.dart';
 class DbService {
   static Database? _db;
   static const String _dbName = 'mobiboss.db';
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   static Future<Database> get database async {
     if (_db != null) return _db!;
@@ -20,13 +20,21 @@ class DbService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, _dbName);
 
-    return await openDatabase(
+    final db = await openDatabase(
       path,
       version: _dbVersion,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           try {
             await db.execute('ALTER TABLE closed_shifts ADD COLUMN denomination TEXT');
+          } catch (_) {}
+        }
+        if (oldVersion < 3) {
+          try {
+            await db.execute('ALTER TABLE transactions ADD COLUMN isVoided INTEGER DEFAULT 0');
+          } catch (_) {}
+          try {
+            await db.execute('ALTER TABLE transactions ADD COLUMN voidedByReversalId TEXT');
           } catch (_) {}
         }
       },
@@ -44,7 +52,9 @@ class DbService {
             reference TEXT,
             ussdString TEXT,
             timestamp TEXT,
-            status TEXT
+            status TEXT,
+            isVoided INTEGER DEFAULT 0,
+            voidedByReversalId TEXT
           )
         ''');
 
@@ -146,6 +156,16 @@ class DbService {
         ''');
       },
     );
+
+    // Auto-heal table if columns are missing in existing database files
+    try {
+      await db.execute('ALTER TABLE transactions ADD COLUMN isVoided INTEGER DEFAULT 0');
+    } catch (_) {}
+    try {
+      await db.execute('ALTER TABLE transactions ADD COLUMN voidedByReversalId TEXT');
+    } catch (_) {}
+
+    return db;
   }
 
   // ==========================================
@@ -212,9 +232,11 @@ class DbService {
   // ==========================================
   static Future<void> insertTransaction(TransactionRecord tx) async {
     final db = await database;
+    final map = Map<String, dynamic>.from(tx.toJson());
+    map['isVoided'] = tx.isVoided ? 1 : 0;
     await db.insert(
       'transactions',
-      tx.toJson(),
+      map,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }

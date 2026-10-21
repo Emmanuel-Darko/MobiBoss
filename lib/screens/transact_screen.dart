@@ -835,7 +835,12 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
       return;
     }
 
-    // Live USSD Execution: If accessibility is not enabled, offer immediate actionable options instead of blocking
+    // Live USSD Execution: Refresh accessibility state dynamically before deciding
+    if (!provider.isAccessibilityEnabled) {
+      await provider.checkAccessibilityState();
+      if (!mounted) return;
+    }
+
     if (!provider.isAccessibilityEnabled) {
       _showAccessibilityOptionsSheet(
         context: context,
@@ -855,13 +860,17 @@ class _TransactScreenState extends State<TransactScreen> with WidgetsBindingObse
       amount: parsedAmount,
     );
 
-    await provider.recordPendingUssdTransaction(
-      till: till,
-      type: type,
-      amount: parsedAmount,
-      customerPhone: targetPhone,
-      ussdCode: plan.rootCode,
-    );
+    try {
+      await provider.recordPendingUssdTransaction(
+        till: till,
+        type: type,
+        amount: parsedAmount,
+        customerPhone: targetPhone,
+        ussdCode: plan.rootCode,
+      );
+    } catch (e) {
+      debugPrint('Error recording pending transaction: $e');
+    }
 
     if (mounted) {
       TopToast.show(

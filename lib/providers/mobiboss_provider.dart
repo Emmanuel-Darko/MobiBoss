@@ -1399,7 +1399,11 @@ class MoMoProvider extends ChangeNotifier {
     );
 
     _transactions.insert(0, tx);
-    await DbService.insertTransaction(tx);
+    try {
+      await DbService.insertTransaction(tx);
+    } catch (e) {
+      debugPrint('Error recording pending transaction to SQLite: $e');
+    }
     notifyListeners();
     return tx;
   }
